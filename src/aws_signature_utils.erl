@@ -11,17 +11,17 @@
          uri_encode_path/1
         ]).
 
-%% @doc Creates an HMAC-SHA256 hexdigest for `Key` and `Message`.
+%% @doc Creates an HMAC-SHA256 hexdigest for `Key' and `Message'.
 -spec hmac_sha256_hexdigest(binary(), binary()) -> binary().
 hmac_sha256_hexdigest(Key, Message) ->
     base16(hmac_sha256(Key, Message)).
 
-%% @doc Creates an HMAC-SHA256 binary for `Key` and `Message`.
+%% @doc Creates an HMAC-SHA256 binary for `Key' and `Message'.
 -spec hmac_sha256(binary(), binary()) -> binary().
 hmac_sha256(Key, Message) ->
     crypto_hmac(sha256, Key, Message).
 
-%% @doc Creates a SHA256 hexdigest for `Value`.
+%% @doc Creates a SHA256 hexdigest for `Value'.
 -spec sha256_hexdigest(binary()) -> binary().
 sha256_hexdigest(Value) ->
     base16(crypto:hash(sha256, Value)).
@@ -49,7 +49,7 @@ hex(N, upper) when N < 16 ->
 
 %% @doc Parses the given URL, returning the path and query components.
 %%
-%% An alternative to uri_string:parse/1 for OTP < 21 support.
+%% An alternative to `uri_string:parse/1' to support OTP below 21.
 -spec parse_path_and_query(binary()) -> {binary(), binary()}.
 parse_path_and_query(URL) when is_binary(URL) ->
     %% From https://datatracker.ietf.org/doc/html/rfc3986#appendix-B

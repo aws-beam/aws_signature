@@ -6,7 +6,7 @@
 -type header() :: {binary(), binary()}.
 -type headers() :: [header()].
 
-%% @doc Same as `sign_v4/9` with no options.
+%% @doc Same as `sign_v4/9' with no options.
 sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body) ->
     sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, []).
 
@@ -16,11 +16,11 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 %% based on which it computes the signature and returns headers
 %% extended with the authorization entries.
 %%
-%% `DateTime` is a datetime tuple used as the request date.
-%% You most likely want to set it to the value of `calendar:universal_time()`
+%% `DateTime' is a datetime tuple used as the request date.
+%% You most likely want to set it to the value of `calendar:universal_time()'
 %% when making the request.
 %%
-%% `URL` must be valid, with all components properly escaped.
+%% `URL' must be valid, with all components properly escaped.
 %% For example, "https://example.com/path%20to" is valid, whereas
 %% "https://example.com/path to" is not.
 %%
@@ -39,13 +39,13 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 %% The following options are supported:
 %%
 %% <dl>
-%% <dt>`uri_encode_path`</dt>
+%% <dt>`uri_encode_path'</dt>
 %% <dd>
-%% When `true`, the request URI path is URI-encoded during request
+%% When `true', the request URI path is URI-encoded during request
 %% canonicalization, <strong>which is required for every service except S3</strong>.
 %% Note that the given URL should already be properly encoded, so
 %% this results in each segment being URI-encoded twice, as expected
-%% by AWS. Defaults to `true`.
+%% by AWS. Defaults to `true'.
 %% </dd>
 %% </dl>
 -spec sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options) -> FinalHeaders when
