@@ -1,9 +1,24 @@
-aws_signature
-=====
+# AWS Signature
 
-An OTP library
+Request signature implementation for authorizing AWS API calls.
 
-Build
------
+<!--
+## Installation
 
-    $ rebar3 compile
+The package is available on [Hex](https://hex.pm/packages/aws_signature).
+To install, just add it to your dependencies in `mix.exs`:
+
+```elixir
+defp deps() do
+  [
+    {:aws_signature, "~> 0.1.0"}
+  ]
+end
+```
+
+or `rebar.config`:
+
+```erlang
+{deps, [{aws_signature, "~> 0.1.0"}]}.
+```
+-->

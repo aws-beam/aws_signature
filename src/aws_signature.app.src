@@ -1,5 +1,5 @@
 {application, aws_signature,
- [{description, "An OTP library"},
+ [{description, "Request signature implementation for authorizing AWS API calls"},
   {vsn, "0.1.0"},
   {registered, []},
   {applications,
@@ -10,5 +10,5 @@
   {modules, []},
 
   {licenses, ["Apache 2.0"]},
-  {links, []}
+  {links, [{"GitHub", "https://github.com/aws-beam/aws_signature"}]}
  ]}.
