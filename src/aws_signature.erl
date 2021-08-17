@@ -1,9 +1,13 @@
 %% @doc This module contains functions for signing requests to AWS services.
 -module(aws_signature).
 
--export([sign_v4/9]).
+-export([sign_v4/9, sign_v4/10]).
 
-%% @doc Implements the Signature Version 4 (SigV4) algorithm.
+%% @doc Same as `sign_v4/9` with no options.
+sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body) ->
+    sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, []).
+
+%% @doc Implements the <a href="https://docs.aws.amazon.com/general/latest/gr/signature-version-4.html">Signature Version 4 (SigV4)</a> algorithm.
 %%
 %% This function takes AWS client credentials and request details,
 %% based on which it computes the signature and returns headers
@@ -13,18 +17,35 @@
 %% You most likely want to set it to the value of `calendar:universal_time()`
 %% when making the request.
 %%
+%% `URL` must be valid, with all components properly escaped.
+%% For example, "https://example.com/path%20to" is valid, whereas
+%% "https://example.com/path to" is not.
+%%
 %% It is essential that the provided request details are final
-%% and the returned headers are used to make the request.
-%% All custom headers need to be assembled before the signature
-%% is calculated.
+%% and the returned headers are used to make the request. All
+%% custom headers need to be assembled before the signature is
+%% calculated.
 %%
 %% The signature is computed by normalizing request details into
 %% a well defined format and combining it with the credentials
 %% using a number of cryptographic functions. Upon receiving
 %% a request, the server calculates the signature using the same
 %% algorithm and compares it with the value received in headers.
-%% For more details check out the <a href="https://docs.aws.amazon.com/general/latest/gr/signature-version-4.html">AWS documentation</a>.
-sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body)
+%% For more details check out the <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html">AWS documentation</a>.
+%%
+%% The following options are supported:
+%%
+%% <dl>
+%% <dt>`uri_encode_path`</dt>
+%% <dd>
+%% When `true`, the request URI path is URI-encoded during request
+%% canonicalization, <strong>which is required for every service except S3</strong>.
+%% Note that the given URL should already be properly encoded, so
+%% this results in each segment being URI-encoded twice, as expected
+%% by AWS. Defaults to `true`.
+%% </dd>
+%% </dl>
+sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options)
     when is_binary(AccessKeyID),
          is_binary(SecretAccessKey),
          is_binary(Region),
@@ -34,12 +55,14 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
          is_binary(URL),
          is_list(Headers),
          is_binary(Body) ->
+    URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
+
     LongDate = format_datetime_long(DateTime),
     ShortDate = format_datetime_short(DateTime),
     FinalHeaders0 = add_date_header(Headers, LongDate),
     FinalHeaders = add_content_hash_header(FinalHeaders0, Body),
 
-    CanonicalRequest = canonical_request(Method, URL, FinalHeaders, Body),
+    CanonicalRequest = canonical_request(Method, URL, FinalHeaders, Body, URIEncodePath),
     HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
     CredentialScope = credential_scope(ShortDate, Region, Service),
     SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
@@ -107,9 +130,9 @@ string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest) ->
     ).
 
 %% Processes and merges request values into a canonical request.
-canonical_request(Method, URL, Headers, Body) ->
+canonical_request(Method, URL, Headers, Body, URIEncodePath) ->
     CanonicalMethod = canonical_method(Method),
-    {CanonicalURL, CanonicalQueryString} = split_url(URL),
+    {CanonicalURL, CanonicalQueryString} = split_url(URL, URIEncodePath),
     CanonicalHeaders = canonical_headers(Headers),
     SignedHeaders = signed_headers(Headers),
     PayloadHash = aws_signature_utils:sha256_hexdigest(Body),
@@ -124,12 +147,13 @@ canonical_method(Method) ->
 
 %% Parses the given URL and returns a canonical URI and a canonical
 %% query string.
-split_url(URL) ->
+split_url(URL, URIEncodePath) ->
     {Path, Query} = aws_signature_utils:parse_path_and_query(URL),
-    {canonical_path(Path), canonical_query(Query)}.
+    {canonical_path(Path, URIEncodePath), canonical_query(Query)}.
 
-canonical_path(<<"">>) -> <<"/">>;
-canonical_path(Path) -> aws_signature_utils:uri_encode_path(Path).
+canonical_path(<<"">>, _URIEncodePath) -> <<"/">>;
+canonical_path(Path, true) -> aws_signature_utils:uri_encode_path(Path);
+canonical_path(Path, false) -> Path.
 
 %% Normalizes the given query string.
 %%
@@ -228,11 +252,11 @@ canonical_headers_test() ->
 
     ?assertEqual(Expected, Actual).
 
-%% canonical_request/4 returns a connical request binary string
+%% canonical_request/5 returns a connical request binary string
 canonical_request_test() ->
     Expected =
         <<"GET", $\n,
-          "/path", $\n,
+          "/pa%2520th", $\n,
           "a=&b=1", $\n,
           "host:example.com", $\n, "x-amz-date:20150325T105958Z", $\n, $\n,
           "host;x-amz-date", $\n,
@@ -240,9 +264,29 @@ canonical_request_test() ->
 
     Actual = canonical_request(
         <<"get">>,
-        <<"https://example.com/path?b=1&a=">>,
+        <<"https://example.com/pa%20th?b=1&a=">>,
         [{<<"Host">>, <<"example.com">>}, {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
-        <<"body">>),
+        <<"body">>,
+        true),
+
+    ?assertEqual(Expected, Actual).
+
+%% canonical_request/4 does not encode the path when disabled
+canonical_request_with_encode_uri_path_false_test() ->
+    Expected =
+        <<"GET", $\n,
+          "/pa%20th", $\n,
+          "", $\n,
+          $\n,
+          $\n,
+          "230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5">>,
+
+    Actual = canonical_request(
+        <<"get">>,
+        <<"https://example.com/pa%20th">>,
+        [],
+        <<"body">>,
+        false),
 
     ?assertEqual(Expected, Actual).
 

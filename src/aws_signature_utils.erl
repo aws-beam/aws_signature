@@ -59,8 +59,10 @@ parse_path_and_query(URL) when is_binary(URL) ->
 
 %% @doc URI-encodes the given path.
 %%
-%% Encodes all characters except for "/" and the unreserved
+%% Escapes all characters except for "/" and the unreserved
 %% characters listed in https://tools.ietf.org/html/rfc3986#section-2.3
+%%
+%% See the UriEncode function in the docs: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
 uri_encode_path(Path) when is_binary(Path) ->
     << (uri_encode_path_byte(Byte)) || <<Byte>> <= Path >>.
 
