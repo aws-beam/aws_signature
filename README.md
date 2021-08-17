@@ -1,8 +1,9 @@
 # AWS Signature
 
+[Documentation](https://hexdocs.pm/aws_signature)
+
 Request signature implementation for authorizing AWS API calls.
 
-<!--
 ## Installation
 
 The package is available on [Hex](https://hex.pm/packages/aws_signature).
@@ -21,4 +22,3 @@ or `rebar.config`:
 ```erlang
 {deps, [{aws_signature, "~> 0.1.0"}]}.
 ```
--->
