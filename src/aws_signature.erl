@@ -242,7 +242,7 @@ sign_v4_reference_example_1_test() ->
     Headers = [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}, {<<"Range">>, <<"bytes=0-9">>}],
     Body = <<"">>,
 
-    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body),
+    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, [{uri_encode_path, false}]),
 
     Expected = [
         {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;range;x-amz-content-sha256;x-amz-date,Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41">>},
@@ -261,14 +261,14 @@ sign_v4_reference_example_2_test() ->
     Service = <<"s3">>,
     DateTime = {{2013, 5, 24}, {0, 0, 0}},
     Method = <<"PUT">>,
-    URL = <<"https://examplebucket.s3.amazonaws.com/test$file.text">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test%24file.text">>,
     Headers = [
         {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
         {<<"Date">>, <<"Fri, 24 May 2013 00:00:00 GMT">>},
         {<<"X-Amz-Storage-Class">>, <<"REDUCED_REDUNDANCY">>}],
     Body = <<"Welcome to Amazon S3.">>,
 
-    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body),
+    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, [{uri_encode_path, false}]),
 
     Expected = [
         {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=date;host;x-amz-content-sha256;x-amz-date;x-amz-storage-class,Signature=98ad721746da40c64f1a55b78f14c238d841ea1380cd77a1b5971af0ece108bd">>},
@@ -292,7 +292,7 @@ sign_v4_reference_example_3_test() ->
     Headers = [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
     Body = <<"">>,
 
-    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body),
+    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, [{uri_encode_path, false}]),
 
     Expected = [
         {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,Signature=fea454ca298b7da1c68078a5d1bdbfbbe0d65c699e0f91ac7a200a0136783543">>},
@@ -314,7 +314,7 @@ sign_v4_reference_example_4_test() ->
     Headers = [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
     Body = <<"">>,
 
-    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body),
+    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, [{uri_encode_path, false}]),
 
     Expected = [
         {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,Signature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7">>},
