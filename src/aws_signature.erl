@@ -104,8 +104,8 @@ authorization(AccessKeyID, CredentialScope, SignedHeaders, Signature) ->
     << "AWS4-HMAC-SHA256 ",
        "Credential=", AccessKeyID/binary,
        "/", CredentialScope/binary,
-       ", SignedHeaders=", SignedHeaders/binary,
-       ", Signature=", Signature/binary >>.
+       ",SignedHeaders=", SignedHeaders/binary,
+       ",Signature=", Signature/binary >>.
 
 %% Generates a signing key from a secret access key, a short date in YYMMDD
 %% format, a region identifier and a service identifier.
@@ -222,11 +222,105 @@ sign_v4_test() ->
     Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body),
 
     Expected = [
-        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=access-key-id/20150514/us-east-1/ec2/aws4_request, SignedHeaders=header;host;x-amz-content-sha256;x-amz-date, Signature=595529f9989556c9ce375ddec1b3e63f9d551fe063738b45909c28b25a34a6cb">>},
+        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=access-key-id/20150514/us-east-1/ec2/aws4_request,SignedHeaders=header;host;x-amz-content-sha256;x-amz-date,Signature=595529f9989556c9ce375ddec1b3e63f9d551fe063738b45909c28b25a34a6cb">>},
         {<<"X-Amz-Content-SHA256">>, <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
         {<<"X-Amz-Date">>, <<"20150514T165005Z">>},
         {<<"Host">>, <<"ec2.us-east-1.amazonaws.com">>},
         {<<"Header">>, <<"Value">>}],
+
+    ?assertEqual(Actual, Expected).
+
+%% sign_v4/9 https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html#example-signature-GET-object
+sign_v4_reference_example_1_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
+    Headers = [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}, {<<"Range">>, <<"bytes=0-9">>}],
+    Body = <<"">>,
+
+    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body),
+
+    Expected = [
+        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;range;x-amz-content-sha256;x-amz-date,Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41">>},
+        {<<"X-Amz-Content-SHA256">>, <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
+        {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
+        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
+        {<<"Range">>, <<"bytes=0-9">>}],
+
+    ?assertEqual(Actual, Expected).
+
+%% sign_v4/9 https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html#example-signature-PUT-object
+sign_v4_reference_example_2_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"PUT">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test$file.text">>,
+    Headers = [
+        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
+        {<<"Date">>, <<"Fri, 24 May 2013 00:00:00 GMT">>},
+        {<<"X-Amz-Storage-Class">>, <<"REDUCED_REDUNDANCY">>}],
+    Body = <<"Welcome to Amazon S3.">>,
+
+    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body),
+
+    Expected = [
+        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=date;host;x-amz-content-sha256;x-amz-date;x-amz-storage-class,Signature=98ad721746da40c64f1a55b78f14c238d841ea1380cd77a1b5971af0ece108bd">>},
+        {<<"X-Amz-Content-SHA256">>, <<"44ce7dd67c959e0d3524ffac1771dfbba87d2b6b4b4e99e42034a8b803f8b072">>},
+        {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
+        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
+        {<<"Date">>, <<"Fri, 24 May 2013 00:00:00 GMT">>},
+        {<<"X-Amz-Storage-Class">>, <<"REDUCED_REDUNDANCY">>}],
+
+    ?assertEqual(Actual, Expected).
+
+%% sign_v4/9 https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html#example-signature-GET-bucket-lifecycle
+sign_v4_reference_example_3_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com?lifecycle">>,
+    Headers = [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
+    Body = <<"">>,
+
+    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body),
+
+    Expected = [
+        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,Signature=fea454ca298b7da1c68078a5d1bdbfbbe0d65c699e0f91ac7a200a0136783543">>},
+        {<<"X-Amz-Content-SHA256">>, <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
+        {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
+        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
+
+    ?assertEqual(Actual, Expected).
+
+%% sign_v4/9 https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html#example-signature-list-bucket
+sign_v4_reference_example_4_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com?max-keys=2&prefix=J">>,
+    Headers = [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
+    Body = <<"">>,
+
+    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body),
+
+    Expected = [
+        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,Signature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7">>},
+        {<<"X-Amz-Content-SHA256">>, <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
+        {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
+        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
 
     ?assertEqual(Actual, Expected).
 
