@@ -12,28 +12,34 @@
         ]).
 
 %% @doc Creates an HMAC-SHA256 hexdigest for `Key` and `Message`.
+-spec hmac_sha256_hexdigest(binary(), binary()) -> binary().
 hmac_sha256_hexdigest(Key, Message) ->
     base16(hmac_sha256(Key, Message)).
 
 %% @doc Creates an HMAC-SHA256 binary for `Key` and `Message`.
+-spec hmac_sha256(binary(), binary()) -> binary().
 hmac_sha256(Key, Message) ->
     crypto_hmac(sha256, Key, Message).
 
 %% @doc Creates a SHA256 hexdigest for `Value`.
+-spec sha256_hexdigest(binary()) -> binary().
 sha256_hexdigest(Value) ->
     base16(crypto:hash(sha256, Value)).
 
 %% @doc Joins binary values using the specified separator.
+-spec binary_join(Parts :: [binary()], Separator :: binary()) -> binary().
 binary_join([], _) -> <<"">>;
 binary_join([H], _) -> H;
 binary_join([H1, H2 | T], Sep) ->
     binary_join([<<H1/binary, Sep/binary, H2/binary>> | T], Sep).
 
 %% @doc Encodes binary data with base 16 encoding.
+-spec base16(binary()) -> binary().
 base16(Data) ->
     << <<(hex(N div 16, lower)), (hex(N rem 16, lower))>> || <<N>> <= Data >>.
 
 %% @doc Converts an integer between 0 and 15 into a hexadecimal char.
+-spec hex(0..15, lower | upper) -> byte().
 hex(N, _Case) when N >= 0, N < 10 ->
     N + $0;
 hex(N, lower) when N < 16 ->
@@ -44,6 +50,7 @@ hex(N, upper) when N < 16 ->
 %% @doc Parses the given URL, returning the path and query components.
 %%
 %% An alternative to uri_string:parse/1 for OTP < 21 support.
+-spec parse_path_and_query(binary()) -> {binary(), binary()}.
 parse_path_and_query(URL) when is_binary(URL) ->
     %% From https://datatracker.ietf.org/doc/html/rfc3986#appendix-B
     {ok, Regex} = re:compile("^(([a-z][a-z0-9\\+\\-\\.]*):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?", [caseless]),
@@ -63,9 +70,11 @@ parse_path_and_query(URL) when is_binary(URL) ->
 %% characters listed in https://tools.ietf.org/html/rfc3986#section-2.3
 %%
 %% See the UriEncode function in the docs: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
+-spec uri_encode_path(binary()) -> binary().
 uri_encode_path(Path) when is_binary(Path) ->
     << (uri_encode_path_byte(Byte)) || <<Byte>> <= Path >>.
 
+-spec uri_encode_path_byte(byte()) -> binary().
 uri_encode_path_byte($/) -> <<"/">>;
 uri_encode_path_byte(Byte)
     when $0 =< Byte, Byte =< $9;
@@ -93,6 +102,7 @@ uri_encode_path_byte(Byte) ->
     -undef(USE_CRYPTO_MAC_4).
 -endif.
 
+-spec crypto_hmac(atom(), binary(), binary()) -> binary().
 -ifdef(USE_CRYPTO_MAC_4).
     crypto_hmac(Sha, Key, Data) -> crypto:mac(hmac, Sha, Key, Data).
 -else.

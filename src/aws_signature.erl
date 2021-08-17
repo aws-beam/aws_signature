@@ -3,6 +3,9 @@
 
 -export([sign_v4/9, sign_v4/10]).
 
+-type header() :: {binary(), binary()}.
+-type headers() :: [header()].
+
 %% @doc Same as `sign_v4/9` with no options.
 sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body) ->
     sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, []).
@@ -45,6 +48,19 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 %% by AWS. Defaults to `true`.
 %% </dd>
 %% </dl>
+-spec sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options) -> FinalHeaders when
+      AccessKeyID :: binary(),
+      SecretAccessKey :: binary(),
+      Region :: binary(),
+      Service :: binary(),
+      DateTime :: calendar:datetime(),
+      Method :: binary(),
+      URL :: binary(),
+      Headers :: headers(),
+      Body :: binary(),
+      Options :: [Option],
+      Option :: {uri_encode_path, boolean()},
+      FinalHeaders :: headers().
 sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options)
     when is_binary(AccessKeyID),
          is_binary(SecretAccessKey),
@@ -74,17 +90,20 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
     add_authorization_header(FinalHeaders, Authorization).
 
 %% Formats the given datetime into YYMMDDTHHMMSSZ binary string.
+-spec format_datetime_long(calendar:datetime()) -> binary().
 format_datetime_long({{Y, Mo, D}, {H, Mn, S}}) ->
     Format = "~4.10.0B~2.10.0B~2.10.0BT~2.10.0B~2.10.0B~2.10.0BZ",
     IsoString = io_lib:format(Format, [Y, Mo, D, H, Mn, S]),
     list_to_binary(IsoString).
 
 %% Formats the given datetime into YYMMDD binary string.
+-spec format_datetime_short(calendar:datetime()) -> binary().
 format_datetime_short({{Y, Mo, D}, _}) ->
     Format = "~4.10.0B~2.10.0B~2.10.0B",
     IsoString = io_lib:format(Format, [Y, Mo, D]),
     list_to_binary(IsoString).
 
+-spec add_authorization_header(headers(), binary()) -> headers().
 add_authorization_header(Headers, Authorization) ->
     [{<<"Authorization">>, Authorization} | Headers].
 
@@ -95,11 +114,13 @@ add_date_header(Headers, LongDate) ->
 %%
 %% This header is required for S3 when using the v4 signature. Adding it
 %% in requests for all services does not cause any issues.
+-spec add_content_hash_header(headers(), binary()) -> headers().
 add_content_hash_header(Headers, Body) ->
     HashedBody = aws_signature_utils:sha256_hexdigest(Body),
     [{<<"X-Amz-Content-SHA256">>, HashedBody} | Headers].
 
 %% Generates an AWS4-HMAC-SHA256 authorization signature.
+-spec authorization(binary(), binary(), binary(), binary()) -> binary().
 authorization(AccessKeyID, CredentialScope, SignedHeaders, Signature) ->
     << "AWS4-HMAC-SHA256 ",
        "Credential=", AccessKeyID/binary,
@@ -109,6 +130,7 @@ authorization(AccessKeyID, CredentialScope, SignedHeaders, Signature) ->
 
 %% Generates a signing key from a secret access key, a short date in YYMMDD
 %% format, a region identifier and a service identifier.
+-spec signing_key(binary(), binary(), binary(), binary()) -> binary().
 signing_key(SecretAccessKey, ShortDate, Region, Service) ->
     SigningKey = << <<"AWS4">>/binary, SecretAccessKey/binary >>,
     SignedDate = aws_signature_utils:hmac_sha256(SigningKey, ShortDate),
@@ -118,11 +140,13 @@ signing_key(SecretAccessKey, ShortDate, Region, Service) ->
 
 %% Generates a credential scope from a short date in YYMMDD format,
 %% a region identifier and a service identifier.
+-spec credential_scope(binary(), binary(),binary()) -> binary().
 credential_scope(ShortDate, Region, Service) ->
     aws_signature_utils:binary_join([ShortDate, Region, Service, <<"aws4_request">>], <<"/">>).
 
 %% Generates the text to sign from a long date in YYMMDDTHHMMSSZ format,
 %% a credential scope and a hashed canonical request.
+-spec string_to_sign(binary(), binary(), binary()) -> binary().
 string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest) ->
     aws_signature_utils:binary_join(
         [<<"AWS4-HMAC-SHA256">>, LongDate, CredentialScope, HashedCanonicalRequest],
@@ -130,6 +154,7 @@ string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest) ->
     ).
 
 %% Processes and merges request values into a canonical request.
+-spec canonical_request(binary(), binary(), headers(), binary(), boolean()) -> binary().
 canonical_request(Method, URL, Headers, Body, URIEncodePath) ->
     CanonicalMethod = canonical_method(Method),
     {CanonicalURL, CanonicalQueryString} = split_url(URL, URIEncodePath),
@@ -142,15 +167,18 @@ canonical_request(Method, URL, Headers, Body, URIEncodePath) ->
     ).
 
 %% Normalizes HTTP method name by uppercasing it.
+-spec canonical_method(binary()) -> binary().
 canonical_method(Method) ->
     list_to_binary(string:to_upper(binary_to_list(Method))).
 
 %% Parses the given URL and returns a canonical URI and a canonical
 %% query string.
+-spec split_url(binary(), boolean()) -> {binary(), binary()}.
 split_url(URL, URIEncodePath) ->
     {Path, Query} = aws_signature_utils:parse_path_and_query(URL),
     {canonical_path(Path, URIEncodePath), canonical_query(Query)}.
 
+-spec canonical_path(binary(), boolean()) -> binary().
 canonical_path(<<"">>, _URIEncodePath) -> <<"/">>;
 canonical_path(Path, true) -> aws_signature_utils:uri_encode_path(Path);
 canonical_path(Path, false) -> Path.
@@ -161,6 +189,7 @@ canonical_path(Path, false) -> Path.
 %% Appends "=" to params with missing value.
 %%
 %% For example, "foo=bar&baz" becomes "baz=&foo=bar".
+-spec canonical_query(binary()) -> binary().
 canonical_query(<<"">>) -> <<"">>;
 canonical_query(Query) ->
     Parts = binary:split(Query, <<"&">>, [global]),
@@ -169,6 +198,7 @@ canonical_query(Query) ->
     NormalizedParts = lists:map(fun query_entry_to_string/1, SortedEntries),
     aws_signature_utils:binary_join(NormalizedParts, <<"&">>).
 
+-spec query_entry_to_string([binary()]) -> binary().
 query_entry_to_string([K, V]) ->
     <<K/binary, "=", V/binary>>;
 query_entry_to_string([K]) ->
@@ -179,11 +209,13 @@ query_entry_to_string([K]) ->
 %% Leading and trailing whitespace around header names and values is
 %% stripped, header names are lowercased, and headers are newline-joined
 %% in alphabetical order (with a trailing newline).
+-spec canonical_headers(headers()) -> binary().
 canonical_headers(Headers) ->
     CanonicalHeaders = lists:map(fun canonical_header/1, Headers),
     SortedCanonicalHeaders = lists:sort(fun({N1, _}, {N2, _}) -> N1 =< N2 end, CanonicalHeaders),
     << <<N/binary, ":", V/binary, "\n" >> || {N, V} <- SortedCanonicalHeaders >>.
 
+-spec canonical_header(header()) -> header().
 canonical_header({Name, Value}) ->
     N = list_to_binary(string:strip(string:to_lower(binary_to_list(Name)))),
     V = list_to_binary(string:strip(binary_to_list(Value))),
@@ -193,12 +225,14 @@ canonical_header({Name, Value}) ->
 %%
 %% Leading and trailing whitespace around names is stripped, header names
 %% are lowercased, and header names are semicolon-joined in alphabetical order.
+-spec signed_headers(headers()) -> binary().
 signed_headers(Headers) ->
     aws_signature_utils:binary_join(
         lists:sort(lists:map(fun signed_header/1, Headers)),
         <<";">>
     ).
 
+-spec signed_header(header()) -> binary().
 signed_header({Name, _}) ->
     list_to_binary(string:strip(string:to_lower(binary_to_list(Name)))).
 
