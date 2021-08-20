@@ -1,7 +1,7 @@
 %% @doc This module contains functions for signing requests to AWS services.
 -module(aws_signature).
 
--export([sign_v4/9, sign_v4/10]).
+-export([sign_v4/9, sign_v4/10, signature/9, signature/10]).
 
 -type header() :: {binary(), binary()}.
 -type headers() :: [header()].
@@ -89,6 +89,43 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 
     add_authorization_header(FinalHeaders, Authorization).
 
+signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body) ->
+    signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, []).
+
+-spec signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options) -> binary() when
+      AccessKeyID :: binary(),
+      SecretAccessKey :: binary(),
+      Region :: binary(),
+      Service :: binary(),
+      DateTime :: calendar:datetime(),
+      Method :: binary(),
+      URL :: binary(),
+      Headers :: headers(),
+      Body :: binary(),
+      Options :: [Option],
+      Option :: {uri_encode_path, boolean()}.
+
+signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options)
+    when is_binary(AccessKeyID),
+         is_binary(SecretAccessKey),
+         is_binary(Region),
+         is_binary(Service),
+         is_tuple(DateTime),
+         is_binary(Method),
+         is_binary(URL),
+         is_list(Headers) ->
+    URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
+
+    LongDate = format_datetime_long(DateTime),
+    ShortDate = format_datetime_short(DateTime),
+
+    CanonicalRequest = canonical_request(Method, URL, Headers, Body, URIEncodePath),
+    HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
+    CredentialScope = credential_scope(ShortDate, Region, Service),
+    SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
+    StringToSign = string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest),
+    aws_signature_utils:hmac_sha256_hexdigest(SigningKey, StringToSign).
+
 %% Formats the given datetime into YYMMDDTHHMMSSZ binary string.
 -spec format_datetime_long(calendar:datetime()) -> binary().
 format_datetime_long({{Y, Mo, D}, {H, Mn, S}}) ->
@@ -155,7 +192,8 @@ string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest) ->
 
 %% Processes and merges request values into a canonical request.
 -spec canonical_request(binary(), binary(), headers(), binary(), boolean()) -> binary().
-canonical_request(Method, URL, Headers, Body, URIEncodePath) ->
+canonical_request(Method, URL, Headers, Body, URIEncodePath)
+    when is_binary(Body) ->
     CanonicalMethod = canonical_method(Method),
     {CanonicalURL, CanonicalQueryString} = split_url(URL, URIEncodePath),
     CanonicalHeaders = canonical_headers(Headers),
@@ -163,6 +201,16 @@ canonical_request(Method, URL, Headers, Body, URIEncodePath) ->
     PayloadHash = aws_signature_utils:sha256_hexdigest(Body),
     aws_signature_utils:binary_join(
         [CanonicalMethod, CanonicalURL, CanonicalQueryString, CanonicalHeaders, SignedHeaders, PayloadHash],
+        <<"\n">>
+    );
+
+canonical_request(Method, URL, Headers, _Body, URIEncodePath) ->
+    CanonicalMethod = canonical_method(Method),
+    {CanonicalURL, CanonicalQueryString} = split_url(URL, URIEncodePath),
+    CanonicalHeaders = canonical_headers(Headers),
+    SignedHeaders = signed_headers(Headers),
+    aws_signature_utils:binary_join(
+        [CanonicalMethod, CanonicalURL, CanonicalQueryString, CanonicalHeaders, SignedHeaders, <<"UNSIGNED-PAYLOAD">>],
         <<"\n">>
     ).
 
