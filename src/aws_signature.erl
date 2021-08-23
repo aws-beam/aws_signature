@@ -92,7 +92,7 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body) ->
     signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, []).
 
--spec signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options) -> binary() when
+-spec signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options) -> Signature when
       AccessKeyID :: binary(),
       SecretAccessKey :: binary(),
       Region :: binary(),
@@ -101,10 +101,10 @@ signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, 
       Method :: binary(),
       URL :: binary(),
       Headers :: headers(),
-      Body :: binary(),
+      Body :: binary() | nil,
       Options :: [Option],
-      Option :: {uri_encode_path, boolean()}.
-
+      Option :: {uri_encode_path, boolean()},
+      Signature :: binary().
 signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options)
     when is_binary(AccessKeyID),
          is_binary(SecretAccessKey),
