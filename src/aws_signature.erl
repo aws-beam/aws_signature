@@ -191,7 +191,7 @@ string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest) ->
     ).
 
 %% Processes and merges request values into a canonical request.
--spec canonical_request(binary(), binary(), headers(), binary(), boolean()) -> binary().
+-spec canonical_request(binary(), binary(), headers(), binary() | nil, boolean()) -> binary().
 canonical_request(Method, URL, Headers, Body, URIEncodePath)
     when is_binary(Body) ->
     CanonicalMethod = canonical_method(Method),
