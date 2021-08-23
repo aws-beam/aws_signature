@@ -101,7 +101,7 @@ signature(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, 
       Method :: binary(),
       URL :: binary(),
       Headers :: headers(),
-      Body :: binary() | nil,
+      Body :: binary() | undefined,
       Options :: [Option],
       Option :: {uri_encode_path, boolean()},
       Signature :: binary().
@@ -191,7 +191,7 @@ string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest) ->
     ).
 
 %% Processes and merges request values into a canonical request.
--spec canonical_request(binary(), binary(), headers(), binary() | nil, boolean()) -> binary().
+-spec canonical_request(binary(), binary(), headers(), binary() | undefined, boolean()) -> binary().
 canonical_request(Method, URL, Headers, Body, URIEncodePath)
     when is_binary(Body) ->
     CanonicalMethod = canonical_method(Method),
