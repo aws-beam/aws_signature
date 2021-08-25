@@ -6,7 +6,7 @@
 -type header() :: {binary(), binary()}.
 -type headers() :: [header()].
 
-%% @doc Same as `sign_v4/9' with no options.
+%% @doc Same as {@link sign_v4/10} with no options.
 sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body) ->
     sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, []).
 
