@@ -68,14 +68,10 @@ parse_url(URL) when is_binary(URL) ->
 -spec rebuilds_url_with_query_params(binary(), [{binary(), binary()}]) -> binary().
 rebuilds_url_with_query_params(OriginalURL, QueryParams) ->
     %% Similar parse_url/1, but just split the URL in all until query params, and ignore the rest.
-    {ok, Regex} = re:compile("^([^?#]*)(\\?([^#]*))?", [caseless]),
-
-    {ok, URL} =
-        case re:run(OriginalURL, Regex, [{capture, all, binary}]) of
-            {match, [_, UrlUntilPath | _ExistingQueryParams]} ->
-                {ok, UrlUntilPath};
-            _ ->
-                {error, original_url_is_invalid}
+    URL =
+        case binary:split(OriginalURL, <<"?">>) of
+            [UrlUntilQuery, _ExistingQuery] -> UrlUntilQuery;
+            [UrlUntilQuery] -> UrlUntilQuery
         end,
     Pairs = [binary_join([Key, Value], <<"=">>) || {Key, Value} <- QueryParams],
     NewQuery = binary_join(Pairs, <<"&">>),
