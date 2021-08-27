@@ -9,7 +9,7 @@ set -e
 
 rebar3 compile
 rebar3 as docs edoc
-version=0.1.0
+version=0.1.1
 ex_doc "aws_signature" $version "_build/default/lib/aws_signature/ebin" \
   --source-ref v${version} \
   --config docs.config
