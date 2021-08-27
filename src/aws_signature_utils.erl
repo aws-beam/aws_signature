@@ -51,18 +51,18 @@ hex(N, upper) when N < 16 ->
 %% @doc Parses the given URL, returning the host, path and query components.
 %%
 %% An alternative to `uri_string:parse/1' to support OTP below 21.
--spec parse_url(binary()) -> {binary(), binary(), binary()}.
+-spec parse_url(binary()) -> #{host => binary(), path => binary(), query => binary()}.
 parse_url(URL) when is_binary(URL) ->
     %% From https://datatracker.ietf.org/doc/html/rfc3986#appendix-B
     {ok, Regex} = re:compile("^(([a-z][a-z0-9\\+\\-\\.]*):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?", [caseless]),
 
     case re:run(URL, Regex, [{capture, all, binary}]) of
         {match, [_, _1, _2, _3, Authority, Path, _6, Query | _]} ->
-            {Authority, Path, Query};
+            #{host => Authority, path => Path, query => Query};
         {match, [_, _1, _2, _3, Authority, Path | _]} ->
-            {Authority, Path, <<"">>};
+            #{host => Authority, path => Path, query => <<"">>};
         _ ->
-            {<<"">>, <<"">>, <<"">>}
+            #{host => <<"">>, path => <<"">>, query => <<"">>}
     end.
 
 -spec rebuilds_url_with_query_params(binary(), [{binary(), binary()}]) -> binary().
@@ -182,25 +182,25 @@ binary_join_with_empty_list_test() ->
 parse_url_with_root_url_test() ->
     ?assertEqual(
         parse_url(<<"https://example.com">>),
-        {<<"example.com">>, <<"">>, <<"">>}).
+        #{path => <<"">>, query => <<"">>, host => <<"example.com">>}).
 
 %% parse_url/1 parses just path
 parse_url_with_just_path_test() ->
     ?assertEqual(
         parse_url(<<"https://example.com/te%20st/path">>),
-        {<<"example.com">>, <<"/te%20st/path">>, <<"">>}).
+        #{query => <<"">>, path => <<"/te%20st/path">>, host => <<"example.com">>}).
 
 %% parse_url/1 parses just query
 parse_url_with_just_query_test() ->
     ?assertEqual(
         parse_url(<<"https://example.com?a=1&b&c=2">>),
-        {<<"example.com">>, <<"">>, <<"a=1&b&c=2">>}).
+        #{host => <<"example.com">>, path => <<"">>, query => <<"a=1&b&c=2">>}).
 
 %% parse_url/1 parses both path and query in a full URL
 parse_url_with_full_url_test() ->
     ?assertEqual(
         parse_url(<<"https://example.com/path/to/file/?a=1&b&c=2#fragment">>),
-        {<<"example.com">>, <<"/path/to/file/">>, <<"a=1&b&c=2">>}).
+        #{host => <<"example.com">>, path => <<"/path/to/file/">>, query => <<"a=1&b&c=2">>}).
 
 %% uri_encode_path/1 keeps forward slash and unreserved characters unchanged
 uri_encode_path_with_forward_slash_test() ->
