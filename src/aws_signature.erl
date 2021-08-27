@@ -123,6 +123,11 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, UR
 %% The following options are supported:
 %%
 %% <dl>
+%% <dt>`ttl'</dt>
+%% <dd>
+%% Time-to-live value that tells how long this URL is valid in seconds.
+%% Defaults to `86400', which means one day.
+%% </dd>
 %% <dt>`uri_encode_path'</dt>
 %% <dd>
 %% When `true', the request URI path is URI-encoded during request
