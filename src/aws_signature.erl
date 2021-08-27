@@ -1,10 +1,12 @@
 %% @doc This module contains functions for signing requests to AWS services.
 -module(aws_signature).
 
--export([sign_v4/9, sign_v4/10]).
+-export([sign_v4/9, sign_v4/10, sign_v4_query_params/6, sign_v4_query_params/7]).
 
 -type header() :: {binary(), binary()}.
 -type headers() :: [header()].
+-type query_param() :: {binary(), binary()}.
+-type query_params() :: [query_param()].
 
 %% @doc Same as {@link sign_v4/10} with no options.
 sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body) ->
@@ -73,12 +75,13 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
          is_binary(Body) ->
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
 
+    URLMap = aws_signature_utils:parse_url(URL),
     LongDate = format_datetime_long(DateTime),
     ShortDate = format_datetime_short(DateTime),
     FinalHeaders0 = add_date_header(Headers, LongDate),
     FinalHeaders = add_content_hash_header(FinalHeaders0, Body),
 
-    CanonicalRequest = canonical_request(Method, URL, FinalHeaders, Body, URIEncodePath),
+    CanonicalRequest = canonical_request(Method, URLMap, FinalHeaders, Body, URIEncodePath),
     HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
     CredentialScope = credential_scope(ShortDate, Region, Service),
     SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
@@ -88,6 +91,112 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
     Authorization = authorization(AccessKeyID, CredentialScope, SignedHeaders, Signature),
 
     add_authorization_header(FinalHeaders, Authorization).
+
+%% @doc Same as {@link sign_v4_query_params/7} with no options.
+sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, URL) ->
+    sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, URL, []).
+
+%% @doc Implements the <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html">Signature Version 4 (SigV4)</a> algorithm for query parameters.
+%%
+%% This function takes AWS client credentials and request details,
+%% based on which it computes the signature and returns the URL
+%% extended with the signature entries. Note that anchors are ignored
+%% in the resulting URL.
+%%
+%% `DateTime' is a datetime tuple used as the request date.
+%% You most likely want to set it to the value of `calendar:universal_time()'
+%% when making the request.
+%%
+%% `URL' must be valid, with all components properly escaped.
+%% For example, "https://example.com/path%20to" is valid, whereas
+%% "https://example.com/path to" is not.
+%%
+%% It is essential that the provided request details are final
+%% and the returned query params are used to make the request with
+%% the provided URL.
+%%
+%% The signature is computed by normalizing request details into
+%% a well defined format and combining it with the credentials
+%% using a number of cryptographic functions. Upon receiving
+%% a request, the server calculates the signature using the same
+%% algorithm and compares it with the value received in headers.
+%% For more details check out the <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html">AWS documentation</a>.
+%%
+%% The following options are supported:
+%%
+%% <dl>
+%% <dt>`ttl'</dt>
+%% <dd>
+%% Time-to-live value that tells how long this URL is valid in seconds.
+%% Defaults to `86400', which means one day.
+%% </dd>
+%% <dt>`uri_encode_path'</dt>
+%% <dd>
+%% When `true', the request URI path is URI-encoded during request
+%% canonicalization, <strong>which is required for every service except S3</strong>.
+%% Note that the given URL should already be properly encoded, so
+%% this results in each segment being URI-encoded twice, as expected
+%% by AWS. Defaults to `true'.
+%% </dd>
+%% <dt>`session_token'</dt>
+%% <dd>
+%% Optional credential parameter if using credentials sourced from the STS service.
+%% </dd>
+%% </dl>
+-spec sign_v4_query_params(AccessKeyID,
+                           SecretAccessKey,
+                           Region,
+                           Service,
+                           DateTime,
+                           URL,
+                           Options) ->
+                              FinalURL
+    when AccessKeyID :: binary(),
+         SecretAccessKey :: binary(),
+         Region :: binary(),
+         Service :: binary(),
+         DateTime :: calendar:datetime(),
+         URL :: binary(),
+         Options :: [Option],
+         Option :: {uri_encode_path, boolean()} | {session_token, binary()},
+         FinalURL :: binary().
+sign_v4_query_params(AccessKeyID,
+                     SecretAccessKey,
+                     Region,
+                     Service,
+                     DateTime,
+                     URL,
+                     Options) ->
+    URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
+    TimeToLive = proplists:get_value(ttl, Options, 86400),
+    SessionToken = proplists:get_value(session_token, Options, undefined),
+    Body = <<"UNSIGNED-PAYLOAD">>,
+    Method = <<"GET">>,
+    BaseParams =
+        [{<<"X-Amz-Algorithm">>, <<"AWS4-HMAC-SHA256">>},
+         {<<"X-Amz-SignedHeaders">>, <<"host">>}],
+
+    URLMap = aws_signature_utils:parse_url(URL),
+    LongDate = format_datetime_long(DateTime),
+    ShortDate = format_datetime_short(DateTime),
+    CredentialScope = credential_scope(ShortDate, Region, Service),
+    FinalQueryParams0 = add_ttl_query_param(BaseParams, TimeToLive),
+    FinalQueryParams1 =
+        add_credential_query_param(FinalQueryParams0, CredentialScope, AccessKeyID),
+    FinalQueryParams2 = maybe_add_session_token_query_param(FinalQueryParams1, SessionToken),
+
+    FinalQueryParams = add_date_header(FinalQueryParams2, LongDate),
+    HostHeader = host_header_from_url(URLMap),
+
+    CanonicalRequest =
+        canonical_request(Method, URLMap, [HostHeader], Body, URIEncodePath, FinalQueryParams),
+
+    HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
+    SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
+    StringToSign = string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest),
+    Signature = aws_signature_utils:hmac_sha256_hexdigest(SigningKey, StringToSign),
+
+    build_final_url_with_signature(URL, URLMap, FinalQueryParams, Signature).
 
 %% Formats the given datetime into YYMMDDTHHMMSSZ binary string.
 -spec format_datetime_long(calendar:datetime()) -> binary().
@@ -109,6 +218,38 @@ add_authorization_header(Headers, Authorization) ->
 
 add_date_header(Headers, LongDate) ->
     [{<<"X-Amz-Date">>, LongDate} | Headers].
+
+add_ttl_query_param(QueryParams, TimeToLive) ->
+    [{<<"X-Amz-Expires">>, integer_to_binary(TimeToLive)} | QueryParams].
+
+add_credential_query_param(QueryParams, Scope, AccessKey) ->
+    EncodedScope = binary:split(Scope, <<"/">>, [global]),
+    [{<<"X-Amz-Credential">>,
+      aws_signature_utils:binary_join([AccessKey | EncodedScope], <<"%2F">>)}
+     | QueryParams].
+
+host_header_from_url(URLMap) ->
+    #{host := Host} = URLMap,
+    {<<"Host">>, Host}.
+
+maybe_add_session_token_query_param(QueryParams, undefined) ->
+    QueryParams;
+maybe_add_session_token_query_param(QueryParams, SessionToken) ->
+    [{<<"X-Amz-Security-Token">>, SessionToken} | QueryParams].
+
+sort_query_params_with_signature(QueryParams, Signature) ->
+    FinalQueryParams = [{<<"X-Amz-Signature">>, Signature} | QueryParams],
+
+    lists:sort(fun({K1, _}, {K2, _}) -> K1 =< K2 end, FinalQueryParams).
+
+-spec build_final_url_with_signature(binary(), map(), query_params(), binary()) -> binary().
+build_final_url_with_signature(OriginalURL, URLMap, QueryParams, Signature) ->
+    #{query := Query} = URLMap,
+
+    FinalQueryParams0 = query_entries(Query) ++ QueryParams,
+    FinalQueryParams = sort_query_params_with_signature(FinalQueryParams0, Signature),
+
+    aws_signature_utils:rebuilds_url_with_query_params(OriginalURL, FinalQueryParams).
 
 %% Adds a X-Amz-Content-SHA256 header which is the hash of the payload.
 %%
@@ -140,48 +281,62 @@ signing_key(SecretAccessKey, ShortDate, Region, Service) ->
 
 %% Generates a credential scope from a short date in YYMMDD format,
 %% a region identifier and a service identifier.
--spec credential_scope(binary(), binary(),binary()) -> binary().
+-spec credential_scope(binary(), binary(), binary()) -> binary().
 credential_scope(ShortDate, Region, Service) ->
-    aws_signature_utils:binary_join([ShortDate, Region, Service, <<"aws4_request">>], <<"/">>).
+    aws_signature_utils:binary_join([ShortDate, Region, Service, <<"aws4_request">>],
+                                    <<"/">>).
 
 %% Generates the text to sign from a long date in YYMMDDTHHMMSSZ format,
 %% a credential scope and a hashed canonical request.
 -spec string_to_sign(binary(), binary(), binary()) -> binary().
 string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest) ->
-    aws_signature_utils:binary_join(
-        [<<"AWS4-HMAC-SHA256">>, LongDate, CredentialScope, HashedCanonicalRequest],
-        <<"\n">>
-    ).
+    aws_signature_utils:binary_join([<<"AWS4-HMAC-SHA256">>,
+                                     LongDate,
+                                     CredentialScope,
+                                     HashedCanonicalRequest],
+                                    <<"\n">>).
 
 %% Processes and merges request values into a canonical request.
--spec canonical_request(binary(), binary(), headers(), binary(), boolean()) -> binary().
+-spec canonical_request(binary(), map(), headers(), binary(), boolean()) -> binary().
 canonical_request(Method, URL, Headers, Body, URIEncodePath) ->
+    canonical_request(Method, URL, Headers, Body, URIEncodePath, []).
+
+-spec canonical_request(binary(),
+                        map(),
+                        headers(),
+                        binary(),
+                        boolean(),
+                        query_params()) ->
+                           binary().
+canonical_request(Method, URLMap, Headers, Body, URIEncodePath, AdditionalQueryParams) ->
     CanonicalMethod = canonical_method(Method),
-    {CanonicalURL, CanonicalQueryString} = split_url(URL, URIEncodePath),
+    #{path := Path, query := Query} = URLMap,
+    CanonicalURL = canonical_path(Path, URIEncodePath),
+    QueryEntries = query_entries(Query),
+    CanonicalQueryString = canonical_query(QueryEntries ++ AdditionalQueryParams),
     CanonicalHeaders = canonical_headers(Headers),
     SignedHeaders = signed_headers(Headers),
-    PayloadHash = aws_signature_utils:sha256_hexdigest(Body),
-    aws_signature_utils:binary_join(
-        [CanonicalMethod, CanonicalURL, CanonicalQueryString, CanonicalHeaders, SignedHeaders, PayloadHash],
-        <<"\n">>
-    ).
+    UnsignedBodyOrPayloadHash = unsigned_body_or_payload_hash(Body),
+    aws_signature_utils:binary_join([CanonicalMethod,
+                                     CanonicalURL,
+                                     CanonicalQueryString,
+                                     CanonicalHeaders,
+                                     SignedHeaders,
+                                     UnsignedBodyOrPayloadHash],
+                                    <<"\n">>).
 
 %% Normalizes HTTP method name by uppercasing it.
 -spec canonical_method(binary()) -> binary().
 canonical_method(Method) ->
     list_to_binary(string:to_upper(binary_to_list(Method))).
 
-%% Parses the given URL and returns a canonical URI and a canonical
-%% query string.
--spec split_url(binary(), boolean()) -> {binary(), binary()}.
-split_url(URL, URIEncodePath) ->
-    {Path, Query} = aws_signature_utils:parse_path_and_query(URL),
-    {canonical_path(Path, URIEncodePath), canonical_query(Query)}.
-
 -spec canonical_path(binary(), boolean()) -> binary().
-canonical_path(<<"">>, _URIEncodePath) -> <<"/">>;
-canonical_path(Path, true) -> aws_signature_utils:uri_encode_path(Path);
-canonical_path(Path, false) -> Path.
+canonical_path(<<"">>, _URIEncodePath) ->
+    <<"/">>;
+canonical_path(Path, true) ->
+    aws_signature_utils:uri_encode_path(Path);
+canonical_path(Path, false) ->
+    Path.
 
 %% Normalizes the given query string.
 %%
@@ -189,20 +344,30 @@ canonical_path(Path, false) -> Path.
 %% Appends "=" to params with missing value.
 %%
 %% For example, "foo=bar&baz" becomes "baz=&foo=bar".
--spec canonical_query(binary()) -> binary().
-canonical_query(<<"">>) -> <<"">>;
-canonical_query(Query) ->
-    Parts = binary:split(Query, <<"&">>, [global]),
-    Entries = [binary:split(Part, <<"=">>) || Part <- Parts],
-    SortedEntries = lists:sort(fun([K1 | _], [K2 | _]) -> K1 =< K2 end, Entries),
-    NormalizedParts = lists:map(fun query_entry_to_string/1, SortedEntries),
+-spec canonical_query(query_params()) -> binary().
+canonical_query([]) ->
+    <<"">>;
+canonical_query(QueryParams) when is_list(QueryParams) ->
+    SortedParts = lists:sort(fun({K1, _}, {K2, _}) -> K1 =< K2 end, QueryParams),
+    NormalizedParts = lists:map(fun query_entry_to_string/1, SortedParts),
     aws_signature_utils:binary_join(NormalizedParts, <<"&">>).
 
--spec query_entry_to_string([binary()]) -> binary().
-query_entry_to_string([K, V]) ->
-    <<K/binary, "=", V/binary>>;
-query_entry_to_string([K]) ->
-    <<K/binary, "=">>.
+-spec query_entries(binary()) -> [{binary(), binary()}].
+query_entries(<<"">>) -> [];
+query_entries(Query) ->
+    Parts = binary:split(Query, <<"&">>, [global]),
+    SplittedParts = [binary:split(Part, <<"=">>) || Part <- Parts],
+
+    lists:map(fun query_entry_to_tuple/1, SplittedParts).
+
+query_entry_to_tuple([Key]) ->
+    {Key, <<"">>};
+query_entry_to_tuple([Key, Value]) ->
+    {Key, Value}.
+
+-spec query_entry_to_string({binary(), binary()}) -> binary().
+query_entry_to_string({K, V}) ->
+    <<K/binary, "=", V/binary>>.
 
 %% Converts a list of headers to canonical header format.
 %%
@@ -212,12 +377,14 @@ query_entry_to_string([K]) ->
 -spec canonical_headers(headers()) -> binary().
 canonical_headers(Headers) ->
     CanonicalHeaders = lists:map(fun canonical_header/1, Headers),
-    SortedCanonicalHeaders = lists:sort(fun({N1, _}, {N2, _}) -> N1 =< N2 end, CanonicalHeaders),
-    << <<N/binary, ":", V/binary, "\n" >> || {N, V} <- SortedCanonicalHeaders >>.
+    SortedCanonicalHeaders =
+        lists:sort(fun({N1, _}, {N2, _}) -> N1 =< N2 end, CanonicalHeaders),
+    << <<N/binary, ":", V/binary, "\n">> || {N, V} <- SortedCanonicalHeaders >>.
 
 -spec canonical_header(header()) -> header().
 canonical_header({Name, Value}) ->
-    N = list_to_binary(string:strip(string:to_lower(binary_to_list(Name)))),
+    N = list_to_binary(string:strip(
+                           string:to_lower(binary_to_list(Name)))),
     V = list_to_binary(string:strip(binary_to_list(Value))),
     {N, V}.
 
@@ -228,17 +395,24 @@ canonical_header({Name, Value}) ->
 -spec signed_headers(headers()) -> binary().
 signed_headers(Headers) ->
     aws_signature_utils:binary_join(
-        lists:sort(lists:map(fun signed_header/1, Headers)),
-        <<";">>
-    ).
+        lists:sort(
+            lists:map(fun signed_header/1, Headers)),
+        <<";">>).
 
 -spec signed_header(header()) -> binary().
 signed_header({Name, _}) ->
-    list_to_binary(string:strip(string:to_lower(binary_to_list(Name)))).
+    list_to_binary(string:strip(
+                       string:to_lower(binary_to_list(Name)))).
+
+unsigned_body_or_payload_hash(<<"UNSIGNED-PAYLOAD">> = Body) ->
+    Body;
+unsigned_body_or_payload_hash(Body) ->
+    aws_signature_utils:sha256_hexdigest(Body).
 
 %%====================================================================
 
 -ifdef(TEST).
+
 -include_lib("eunit/include/eunit.hrl").
 
 %% sign_v4/9 computes AWS Signature Version 4 and returns an updated list of headers
@@ -392,7 +566,7 @@ canonical_request_test() ->
 
     Actual = canonical_request(
         <<"get">>,
-        <<"https://example.com/pa%20th?b=1&a=">>,
+        #{path => <<"/pa%20th">>, query => <<"b=1&a=">>},
         [{<<"Host">>, <<"example.com">>}, {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
         <<"body">>,
         true),
@@ -409,12 +583,173 @@ canonical_request_with_encode_uri_path_false_test() ->
           $\n,
           "230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5">>,
 
-    Actual = canonical_request(
-        <<"get">>,
-        <<"https://example.com/pa%20th">>,
-        [],
-        <<"body">>,
-        false),
+    Actual =
+        canonical_request(<<"get">>, #{path => <<"/pa%20th">>, query => <<"">>}, [], <<"body">>, false),
+
+    ?assertEqual(Expected, Actual).
+
+%% canonical_request/5 returns a canonical request binary string with extra query params
+canonical_request_with_extra_query_params_test() ->
+    Expected =
+        <<"GET",
+          $\n,
+          "/pa%2520th",
+          $\n,
+          "a=&b=1&c=2&d=3",
+          $\n,
+          "host:example.com",
+          $\n,
+          "x-amz-date:20150325T105958Z",
+          $\n,
+          $\n,
+          "host;x-amz-date",
+          $\n,
+          "230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5">>,
+
+    Actual =
+        canonical_request(<<"get">>,
+                          #{path => <<"/pa%20th">>, query => <<"b=1&a=">>},
+                          [{<<"Host">>, <<"example.com">>},
+                           {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
+                          <<"body">>,
+                          true,
+                          [{<<"c">>, <<"2">>}, {<<"d">>, <<"3">>}]),
+
+    ?assertEqual(Expected, Actual).
+
+%% canonical_request/5 returns a canonical request binary string without hashing when unsigned body
+canonical_request_without_hashing_unsigned_body_test() ->
+    Expected =
+        <<"GET",
+          $\n,
+          "/pa%2520th",
+          $\n,
+          "a=&b=1&c=2&d=3",
+          $\n,
+          "host:example.com",
+          $\n,
+          "x-amz-date:20150325T105958Z",
+          $\n,
+          $\n,
+          "host;x-amz-date",
+          $\n,
+          "UNSIGNED-PAYLOAD">>,
+
+    Actual =
+        canonical_request(<<"get">>,
+                          #{path => <<"/pa%20th">>, query => <<"b=1&a=">>},
+                          [{<<"Host">>, <<"example.com">>},
+                           {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
+                          <<"UNSIGNED-PAYLOAD">>,
+                          true,
+                          [{<<"c">>, <<"2">>}, {<<"d">>, <<"3">>}]),
+
+    ?assertEqual(Expected, Actual).
+
+%% canonical_request/5 returns a canonical request binary string with only additional query params
+canonical_request_with_only_additional_query_params_test() ->
+    Expected =
+        <<"GET",
+          $\n,
+          "/pa%2520th",
+          $\n,
+          "c=2&d=3",
+          $\n,
+          "host:example.com",
+          $\n,
+          "x-amz-date:20150325T105958Z",
+          $\n,
+          $\n,
+          "host;x-amz-date",
+          $\n,
+          "UNSIGNED-PAYLOAD">>,
+
+    Actual =
+        canonical_request(<<"get">>,
+                          #{path => <<"/pa%20th">>, query => <<"">>},
+                          [{<<"Host">>, <<"example.com">>},
+                           {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
+                          <<"UNSIGNED-PAYLOAD">>,
+                          true,
+                          [{<<"c">>, <<"2">>}, {<<"d">>, <<"3">>}]),
+
+    ?assertEqual(Expected, Actual).
+
+%% sign_v4_query_params/7: Example 1 from https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html
+sign_v4_query_params_reference_example_1_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
+
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404&",
+        "X-Amz-SignedHeaders=host">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, URL, []),
+
+    ?assertEqual(Expected, Actual).
+
+%% sign_v4_query_params/7: Example 2 from https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html
+sign_v4_query_params_reference_example_2_with_session_token_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
+    SessionToken = <<"my-session-token">>,
+
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=86400&",
+          "X-Amz-Security-Token=my-session-token&",
+          "X-Amz-Signature=127498ec2e996f60915eba27520e69b1554fe016da1d36a3dde70f2408551d67&",
+          "X-Amz-SignedHeaders=host">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             URL,
+                             [{session_token, SessionToken}]),
+
+    ?assertEqual(Expected, Actual).
+
+sign_v4_query_params_merge_existing_query_params_with_ttl_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt?A-param=value&X-Another=param">>,
+
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+        "A-param=value&",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=3600&",
+        "X-Amz-Signature=f2ddcc871a0ebb0bc2231124526668f80a50d76271bea22996d020da40198c3a&",
+        "X-Amz-SignedHeaders=host&",
+        "X-Another=param">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, URL, [{ttl, 3600}]),
 
     ?assertEqual(Expected, Actual).
 

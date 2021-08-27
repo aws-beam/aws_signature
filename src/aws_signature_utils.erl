@@ -7,8 +7,9 @@
          binary_join/2,
          base16/1,
          hex/2,
-         parse_path_and_query/1,
-         uri_encode_path/1
+         parse_url/1,
+         uri_encode_path/1,
+         rebuilds_url_with_query_params/2
         ]).
 
 %% @doc Creates an HMAC-SHA256 hexdigest for `Key' and `Message'.
@@ -47,22 +48,35 @@ hex(N, lower) when N < 16 ->
 hex(N, upper) when N < 16 ->
     N - 10 + $A.
 
-%% @doc Parses the given URL, returning the path and query components.
+%% @doc Parses the given URL, returning the host, path and query components.
 %%
 %% An alternative to `uri_string:parse/1' to support OTP below 21.
--spec parse_path_and_query(binary()) -> {binary(), binary()}.
-parse_path_and_query(URL) when is_binary(URL) ->
+-spec parse_url(binary()) -> #{host => binary(), path => binary(), query => binary()}.
+parse_url(URL) when is_binary(URL) ->
     %% From https://datatracker.ietf.org/doc/html/rfc3986#appendix-B
     {ok, Regex} = re:compile("^(([a-z][a-z0-9\\+\\-\\.]*):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?", [caseless]),
 
     case re:run(URL, Regex, [{capture, all, binary}]) of
-        {match, [_, _1, _2, _3, _4, Path, _6, Query | _]} ->
-            {Path, Query};
-        {match, [_, _1, _2, _3, _4, Path | _]} ->
-            {Path, <<"">>};
+        {match, [_, _1, _2, _3, Authority, Path, _6, Query | _]} ->
+            #{host => Authority, path => Path, query => Query};
+        {match, [_, _1, _2, _3, Authority, Path | _]} ->
+            #{host => Authority, path => Path, query => <<"">>};
         _ ->
-            {<<"">>, <<"">>}
+            #{host => <<"">>, path => <<"">>, query => <<"">>}
     end.
+
+-spec rebuilds_url_with_query_params(binary(), [{binary(), binary()}]) -> binary().
+rebuilds_url_with_query_params(OriginalURL, QueryParams) ->
+    %% Similar parse_url/1, but just split the URL in all until query params, and ignore the rest.
+    URL =
+        case binary:split(OriginalURL, <<"?">>) of
+            [UrlUntilQuery, _ExistingQuery] -> UrlUntilQuery;
+            [UrlUntilQuery] -> UrlUntilQuery
+        end,
+    Pairs = [binary_join([Key, Value], <<"=">>) || {Key, Value} <- QueryParams],
+    NewQuery = binary_join(Pairs, <<"&">>),
+    binary_join([URL, NewQuery], <<"?">>).
+
 
 %% @doc URI-encodes the given path.
 %%
@@ -164,29 +178,29 @@ binary_join_with_single_element_list_test() ->
 binary_join_with_empty_list_test() ->
     ?assertEqual(binary_join([], <<",">>), <<"">>).
 
-%% parse_path_and_query/1 returns empty path and query if none is present
-parse_path_and_query_with_root_url_test() ->
+%% parse_url/1 returns empty path and query if none is present
+parse_url_with_root_url_test() ->
     ?assertEqual(
-        parse_path_and_query(<<"https://example.com">>),
-        {<<"">>, <<"">>}).
+        parse_url(<<"https://example.com">>),
+        #{path => <<"">>, query => <<"">>, host => <<"example.com">>}).
 
-%% parse_path_and_query/1 parses just path
-parse_path_and_query_with_just_path_test() ->
+%% parse_url/1 parses just path
+parse_url_with_just_path_test() ->
     ?assertEqual(
-        parse_path_and_query(<<"https://example.com/te%20st/path">>),
-        {<<"/te%20st/path">>, <<"">>}).
+        parse_url(<<"https://example.com/te%20st/path">>),
+        #{query => <<"">>, path => <<"/te%20st/path">>, host => <<"example.com">>}).
 
-%% parse_path_and_query/1 parses just query
-parse_path_and_query_with_just_query_test() ->
+%% parse_url/1 parses just query
+parse_url_with_just_query_test() ->
     ?assertEqual(
-        parse_path_and_query(<<"https://example.com?a=1&b&c=2">>),
-        {<<"">>, <<"a=1&b&c=2">>}).
+        parse_url(<<"https://example.com?a=1&b&c=2">>),
+        #{host => <<"example.com">>, path => <<"">>, query => <<"a=1&b&c=2">>}).
 
-%% parse_path_and_query/1 parses both path and query in a full URL
-parse_path_and_query_with_full_url_test() ->
+%% parse_url/1 parses both path and query in a full URL
+parse_url_with_full_url_test() ->
     ?assertEqual(
-        parse_path_and_query(<<"https://example.com/path/to/file/?a=1&b&c=2#fragment">>),
-        {<<"/path/to/file/">>, <<"a=1&b&c=2">>}).
+        parse_url(<<"https://example.com/path/to/file/?a=1&b&c=2#fragment">>),
+        #{host => <<"example.com">>, path => <<"/path/to/file/">>, query => <<"a=1&b&c=2">>}).
 
 %% uri_encode_path/1 keeps forward slash and unreserved characters unchanged
 uri_encode_path_with_forward_slash_test() ->
@@ -195,5 +209,17 @@ uri_encode_path_with_forward_slash_test() ->
 %% uri_encode_path/1 escapes reserved characters
 uri_encode_path_with_reserved_characters_test() ->
     ?assertEqual(uri_encode_path(<<"/a+b%c[d] e:f/">>), <<"/a%2Bb%25c%5Bd%5D%20e%3Af/">>).
+
+%% rebuilds_url_with_query_params/2 correctly assambles a new URL
+rebuilds_url_with_query_params_test() ->
+  OriginalURL =
+      <<"https://example.com/path?existing_param=value&another_one=true#i-will-be-ignored">>,
+
+  Actual =
+      rebuilds_url_with_query_params(OriginalURL,
+                                     [{<<"new_param">>, <<"new_value">>}]),
+
+  Expected = <<"https://example.com/path?new_param=new_value">>,
+  ?assertEqual(Expected, Actual).
 
 -endif.
