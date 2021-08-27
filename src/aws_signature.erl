@@ -362,12 +362,10 @@ query_entries(Query) ->
 
 query_entry_to_tuple([Key]) ->
     {Key, <<"">>};
-  query_entry_to_tuple([Key, Value]) ->
+query_entry_to_tuple([Key, Value]) ->
     {Key, Value}.
 
 -spec query_entry_to_string({binary(), binary()}) -> binary().
-query_entry_to_string({K, <<"">>}) ->
-    <<K/binary, "=">>;
 query_entry_to_string({K, V}) ->
     <<K/binary, "=", V/binary>>.
 
