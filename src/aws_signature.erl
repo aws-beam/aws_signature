@@ -98,8 +98,9 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, UR
 %% @doc Implements the <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html">Signature Version 4 (SigV4)</a> algorithm for query parameters.
 %%
 %% This function takes AWS client credentials and request details,
-%% based on which it computes the signature and returns query params
-%% extended with the signature entries.
+%% based on which it computes the signature and returns the URL
+%% extended with the signature entries. Note that anchors are ignored
+%% in the resulting URL.
 %%
 %% `DateTime' is a datetime tuple used as the request date.
 %% You most likely want to set it to the value of `calendar:universal_time()'
@@ -148,7 +149,7 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, UR
                            DateTime,
                            URL,
                            Options) ->
-                              FinalQueryParams
+                              FinalURL
     when AccessKeyID :: binary(),
          SecretAccessKey :: binary(),
          Region :: binary(),
@@ -157,7 +158,7 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, UR
          URL :: binary(),
          Options :: [Option],
          Option :: {uri_encode_path, boolean()} | {session_token, binary()},
-         FinalQueryParams :: query_params().
+         FinalURL :: binary().
 sign_v4_query_params(AccessKeyID,
                      SecretAccessKey,
                      Region,
@@ -193,7 +194,7 @@ sign_v4_query_params(AccessKeyID,
     StringToSign = string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest),
     Signature = aws_signature_utils:hmac_sha256_hexdigest(SigningKey, StringToSign),
 
-    sort_query_params_with_signature(FinalQueryParams, Signature).
+    build_final_url_with_signature(URL, FinalQueryParams, Signature).
 
 %% Formats the given datetime into YYMMDDTHHMMSSZ binary string.
 -spec format_datetime_long(calendar:datetime()) -> binary().
@@ -238,6 +239,11 @@ sort_query_params_with_signature(QueryParams, Signature) ->
     FinalQueryParams = [{<<"X-Amz-Signature">>, Signature} | QueryParams],
 
     lists:sort(fun({K1, _}, {K2, _}) -> K1 =< K2 end, FinalQueryParams).
+
+build_final_url_with_signature(OriginalURL, QueryParams, Signature) ->
+  FinalQueryParams = sort_query_params_with_signature(QueryParams, Signature),
+
+  aws_signature_utils:rebuilds_url_with_query_params(OriginalURL, FinalQueryParams).
 
 %% Adds a X-Amz-Content-SHA256 header which is the hash of the payload.
 %%
@@ -669,21 +675,19 @@ sign_v4_query_params_reference_example_1_test() ->
     DateTime = {{2013, 5, 24}, {0, 0, 0}},
     URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
 
-    ExpectedQueryParams =
-        [{<<"X-Amz-Algorithm">>, <<"AWS4-HMAC-SHA256">>},
-         {<<"X-Amz-Credential">>,
-          <<"AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request">>},
-         {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
-         {<<"X-Amz-Expires">>, <<"86400">>},
-         {<<"X-Amz-Signature">>,
-          <<"aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404">>},
-         {<<"X-Amz-SignedHeaders">>, <<"host">>}],
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404&",
+        "X-Amz-SignedHeaders=host">>,
 
-    ActualQueryParams =
+    Actual =
         sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, URL, []),
 
-    [?assertEqual(Expected, Actual)
-     || {Expected, Actual} <- lists:zip(ExpectedQueryParams, ActualQueryParams)].
+    ?assertEqual(Expected, Actual).
 
 %% sign_v4_query_params/7: Example 2 from https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html
 sign_v4_query_params_reference_example_2_with_session_token_test() ->
@@ -695,18 +699,17 @@ sign_v4_query_params_reference_example_2_with_session_token_test() ->
     URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
     SessionToken = <<"my-session-token">>,
 
-    ExpectedQueryParams =
-        [{<<"X-Amz-Algorithm">>, <<"AWS4-HMAC-SHA256">>},
-         {<<"X-Amz-Credential">>,
-          <<"AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request">>},
-         {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
-         {<<"X-Amz-Expires">>, <<"86400">>},
-         {<<"X-Amz-Security-Token">>, <<"my-session-token">>},
-         {<<"X-Amz-Signature">>,
-          <<"127498ec2e996f60915eba27520e69b1554fe016da1d36a3dde70f2408551d67">>},
-         {<<"X-Amz-SignedHeaders">>, <<"host">>}],
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=86400&",
+          "X-Amz-Security-Token=my-session-token&",
+          "X-Amz-Signature=127498ec2e996f60915eba27520e69b1554fe016da1d36a3dde70f2408551d67&",
+          "X-Amz-SignedHeaders=host">>,
 
-    ActualQueryParams =
+    Actual =
         sign_v4_query_params(AccessKeyID,
                              SecretAccessKey,
                              Region,
@@ -715,7 +718,6 @@ sign_v4_query_params_reference_example_2_with_session_token_test() ->
                              URL,
                              [{session_token, SessionToken}]),
 
-    [?assertEqual(Expected, Actual)
-     || {Expected, Actual} <- lists:zip(ExpectedQueryParams, ActualQueryParams)].
+    ?assertEqual(Expected, Actual).
 
 -endif.

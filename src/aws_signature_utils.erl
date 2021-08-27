@@ -8,7 +8,8 @@
          base16/1,
          hex/2,
          parse_url/1,
-         uri_encode_path/1
+         uri_encode_path/1,
+         rebuilds_url_with_query_params/2
         ]).
 
 %% @doc Creates an HMAC-SHA256 hexdigest for `Key' and `Message'.
@@ -63,6 +64,22 @@ parse_url(URL) when is_binary(URL) ->
         _ ->
             {<<"">>, <<"">>, <<"">>}
     end.
+
+-spec rebuilds_url_with_query_params(binary(), [{binary(), binary()}]) -> binary().
+rebuilds_url_with_query_params(OriginalURL, QueryParams) ->
+    %% Similar parse_url/1, but just split the URL in all until query params, and ignore the rest.
+    {ok, Regex} = re:compile("^([^?#]*)(\\?([^#]*))?", [caseless]),
+
+    {ok, URL} =
+        case re:run(OriginalURL, Regex, [{capture, all, binary}]) of
+            {match, [_, UrlUntilPath | _ExistingQueryParams]} ->
+                {ok, UrlUntilPath};
+            _ ->
+                {error, original_url_is_invalid}
+        end,
+    Pairs = [binary_join([Key, Value], <<"=">>) || {Key, Value} <- QueryParams],
+    NewQuery = binary_join(Pairs, <<"&">>),
+    binary_join([URL, NewQuery], <<"?">>).
 
 
 %% @doc URI-encodes the given path.
@@ -196,5 +213,17 @@ uri_encode_path_with_forward_slash_test() ->
 %% uri_encode_path/1 escapes reserved characters
 uri_encode_path_with_reserved_characters_test() ->
     ?assertEqual(uri_encode_path(<<"/a+b%c[d] e:f/">>), <<"/a%2Bb%25c%5Bd%5D%20e%3Af/">>).
+
+%% rebuilds_url_with_query_params/2 correctly assambles a new URL
+rebuilds_url_with_query_params_test() ->
+  OriginalURL =
+      <<"https://example.com/path?existing_param=value&another_one=true#i-will-be-ignored">>,
+
+  Actual =
+      rebuilds_url_with_query_params(OriginalURL,
+                                     [{<<"new_param">>, <<"new_value">>}]),
+
+  Expected = <<"https://example.com/path?new_param=new_value">>,
+  ?assertEqual(Expected, Actual).
 
 -endif.
