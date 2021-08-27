@@ -246,16 +246,10 @@ sort_query_params_with_signature(QueryParams, Signature) ->
 build_final_url_with_signature(OriginalURL, URLMap, QueryParams, Signature) ->
     #{query := Query} = URLMap,
 
-    OriginalQueryParams = lists:map(fun query_entry_to_tuple/1, query_entries(Query)),
-    FinalQueryParams0 = OriginalQueryParams ++ QueryParams,
+    FinalQueryParams0 = query_entries(Query) ++ QueryParams,
     FinalQueryParams = sort_query_params_with_signature(FinalQueryParams0, Signature),
 
     aws_signature_utils:rebuilds_url_with_query_params(OriginalURL, FinalQueryParams).
-
-query_entry_to_tuple([Key]) ->
-    {Key, <<"">>};
-  query_entry_to_tuple([Key, Value]) ->
-    {Key, Value}.
 
 %% Adds a X-Amz-Content-SHA256 header which is the hash of the payload.
 %%
@@ -318,7 +312,8 @@ canonical_request(Method, URLMap, Headers, Body, URIEncodePath, AdditionalQueryP
     CanonicalMethod = canonical_method(Method),
     #{path := Path, query := Query} = URLMap,
     CanonicalURL = canonical_path(Path, URIEncodePath),
-    CanonicalQueryString = canonical_query(Query, AdditionalQueryParams),
+    QueryEntries = query_entries(Query),
+    CanonicalQueryString = canonical_query(QueryEntries ++ AdditionalQueryParams),
     CanonicalHeaders = canonical_headers(Headers),
     SignedHeaders = signed_headers(Headers),
     UnsignedBodyOrPayloadHash = unsigned_body_or_payload_hash(Body),
@@ -349,33 +344,32 @@ canonical_path(Path, false) ->
 %% Appends "=" to params with missing value.
 %%
 %% For example, "foo=bar&baz" becomes "baz=&foo=bar".
--spec canonical_query(binary(), query_params()) -> binary().
-canonical_query(<<"">>, []) ->
+-spec canonical_query(query_params()) -> binary().
+canonical_query([]) ->
     <<"">>;
-canonical_query(<<"">>, AdditionalQueryParams) when is_list(AdditionalQueryParams) ->
-    Entries = [[Key, Value] || {Key, Value} <- AdditionalQueryParams],
-    SortedEntries = lists:sort(fun([K1 | _], [K2 | _]) -> K1 =< K2 end, Entries),
-    NormalizedParts = lists:map(fun query_entry_to_string/1, SortedEntries),
-    aws_signature_utils:binary_join(NormalizedParts, <<"&">>);
-canonical_query(Query, AdditionalQueryParams) ->
-    Entries = query_entries(Query),
-    AdditionalEntries = [[Key, Value] || {Key, Value} <- AdditionalQueryParams],
-    SortedEntries =
-        lists:sort(fun([K1 | _], [K2 | _]) -> K1 =< K2 end, Entries ++ AdditionalEntries),
-    NormalizedParts = lists:map(fun query_entry_to_string/1, SortedEntries),
+canonical_query(QueryParams) when is_list(QueryParams) ->
+    SortedParts = lists:sort(fun({K1, _}, {K2, _}) -> K1 =< K2 end, QueryParams),
+    NormalizedParts = lists:map(fun query_entry_to_string/1, SortedParts),
     aws_signature_utils:binary_join(NormalizedParts, <<"&">>).
 
--spec query_entries(binary()) -> [[binary()]].
+-spec query_entries(binary()) -> [{binary(), binary()}].
 query_entries(<<"">>) -> [];
 query_entries(Query) ->
     Parts = binary:split(Query, <<"&">>, [global]),
-    [binary:split(Part, <<"=">>) || Part <- Parts].
+    SplittedParts = [binary:split(Part, <<"=">>) || Part <- Parts],
 
--spec query_entry_to_string([binary()]) -> binary().
-query_entry_to_string([K, V]) ->
-    <<K/binary, "=", V/binary>>;
-query_entry_to_string([K]) ->
-    <<K/binary, "=">>.
+    lists:map(fun query_entry_to_tuple/1, SplittedParts).
+
+query_entry_to_tuple([Key]) ->
+    {Key, <<"">>};
+  query_entry_to_tuple([Key, Value]) ->
+    {Key, Value}.
+
+-spec query_entry_to_string({binary(), binary()}) -> binary().
+query_entry_to_string({K, <<"">>}) ->
+    <<K/binary, "=">>;
+query_entry_to_string({K, V}) ->
+    <<K/binary, "=", V/binary>>.
 
 %% Converts a list of headers to canonical header format.
 %%
