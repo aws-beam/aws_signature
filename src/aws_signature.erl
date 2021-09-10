@@ -158,7 +158,7 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, UR
          DateTime :: calendar:datetime(),
          URL :: binary(),
          Options :: [Option],
-         Option :: {uri_encode_path, boolean()} | {session_token, binary()},
+         Option :: {uri_encode_path, boolean()} | {session_token, binary()} | {ttl, non_neg_integer()},
          FinalURL :: binary().
 sign_v4_query_params(AccessKeyID,
                      SecretAccessKey,
