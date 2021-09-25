@@ -753,4 +753,27 @@ sign_v4_query_params_merge_existing_query_params_with_ttl_test() ->
 
     ?assertEqual(Expected, Actual).
 
+sign_v4_query_params_with_put_method_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"PUT">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
+
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=f4db56459304dafaa603a99a23c6bea8821890259a65c18ff503a4a72a80efd9&",
+        "X-Amz-SignedHeaders=host">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []),
+
+    ?assertEqual(Expected, Actual).
+
 -endif.
