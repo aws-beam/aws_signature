@@ -1,7 +1,7 @@
 %% @doc This module contains functions for signing requests to AWS services.
 -module(aws_signature).
 
--export([sign_v4/9, sign_v4/10, sign_v4_query_params/6, sign_v4_query_params/7]).
+-export([sign_v4/9, sign_v4/10, sign_v4_query_params/7, sign_v4_query_params/8]).
 
 -type header() :: {binary(), binary()}.
 -type headers() :: [header()].
@@ -50,19 +50,19 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 %% by AWS. Defaults to `true'.
 %% </dd>
 %% </dl>
--spec sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options) -> FinalHeaders when
-      AccessKeyID :: binary(),
-      SecretAccessKey :: binary(),
-      Region :: binary(),
-      Service :: binary(),
-      DateTime :: calendar:datetime(),
-      Method :: binary(),
-      URL :: binary(),
-      Headers :: headers(),
-      Body :: binary(),
-      Options :: [Option],
-      Option :: {uri_encode_path, boolean()},
-      FinalHeaders :: headers().
+-spec sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options) -> FinalHeaders
+    when AccessKeyID :: binary(),
+         SecretAccessKey :: binary(),
+         Region :: binary(),
+         Service :: binary(),
+         DateTime :: calendar:datetime(),
+         Method :: binary(),
+         URL :: binary(),
+         Headers :: headers(),
+         Body :: binary(),
+         Options :: [Option],
+         Option :: {uri_encode_path, boolean()},
+         FinalHeaders :: headers().
 sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options)
     when is_binary(AccessKeyID),
          is_binary(SecretAccessKey),
@@ -72,7 +72,8 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
          is_binary(Method),
          is_binary(URL),
          is_list(Headers),
-         is_binary(Body) ->
+         is_binary(Body),
+         is_list(Options) ->
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
 
     URLMap = aws_signature_utils:parse_url(URL),
@@ -93,8 +94,8 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
     add_authorization_header(FinalHeaders, Authorization).
 
 %% @doc Same as {@link sign_v4_query_params/7} with no options.
-sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, URL) ->
-    sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, URL, []).
+sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL) ->
+    sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []).
 
 %% @doc Implements the <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html">Signature Version 4 (SigV4)</a> algorithm for query parameters.
 %%
@@ -143,35 +144,30 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, UR
 %% Optional credential parameter if using credentials sourced from the STS service.
 %% </dd>
 %% </dl>
--spec sign_v4_query_params(AccessKeyID,
-                           SecretAccessKey,
-                           Region,
-                           Service,
-                           DateTime,
-                           URL,
-                           Options) ->
-                              FinalURL
+-spec sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Options) -> FinalURL
     when AccessKeyID :: binary(),
          SecretAccessKey :: binary(),
          Region :: binary(),
          Service :: binary(),
          DateTime :: calendar:datetime(),
+         Method :: binary(),
          URL :: binary(),
          Options :: [Option],
          Option :: {uri_encode_path, boolean()} | {session_token, binary()} | {ttl, non_neg_integer()},
          FinalURL :: binary().
-sign_v4_query_params(AccessKeyID,
-                     SecretAccessKey,
-                     Region,
-                     Service,
-                     DateTime,
-                     URL,
-                     Options) ->
+sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Options)
+    when is_binary(AccessKeyID),
+         is_binary(SecretAccessKey),
+         is_binary(Region),
+         is_binary(Service),
+         is_tuple(DateTime),
+         is_binary(Method),
+         is_binary(URL),
+         is_list(Options) ->
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
     TimeToLive = proplists:get_value(ttl, Options, 86400),
     SessionToken = proplists:get_value(session_token, Options, undefined),
     Body = <<"UNSIGNED-PAYLOAD">>,
-    Method = <<"GET">>,
     BaseParams =
         [{<<"X-Amz-Algorithm">>, <<"AWS4-HMAC-SHA256">>},
          {<<"X-Amz-SignedHeaders">>, <<"host">>}],
@@ -682,6 +678,7 @@ sign_v4_query_params_reference_example_1_test() ->
     Region = <<"us-east-1">>,
     Service = <<"s3">>,
     DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
     URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
 
     Expected =
@@ -694,7 +691,7 @@ sign_v4_query_params_reference_example_1_test() ->
         "X-Amz-SignedHeaders=host">>,
 
     Actual =
-        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, URL, []),
+        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []),
 
     ?assertEqual(Expected, Actual).
 
@@ -705,6 +702,7 @@ sign_v4_query_params_reference_example_2_with_session_token_test() ->
     Region = <<"us-east-1">>,
     Service = <<"s3">>,
     DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
     URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
     SessionToken = <<"my-session-token">>,
 
@@ -724,6 +722,7 @@ sign_v4_query_params_reference_example_2_with_session_token_test() ->
                              Region,
                              Service,
                              DateTime,
+                             Method,
                              URL,
                              [{session_token, SessionToken}]),
 
@@ -735,6 +734,7 @@ sign_v4_query_params_merge_existing_query_params_with_ttl_test() ->
     Region = <<"us-east-1">>,
     Service = <<"s3">>,
     DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
     URL = <<"https://examplebucket.s3.amazonaws.com/test.txt?A-param=value&X-Another=param">>,
 
     Expected =
@@ -749,7 +749,30 @@ sign_v4_query_params_merge_existing_query_params_with_ttl_test() ->
         "X-Another=param">>,
 
     Actual =
-        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, URL, [{ttl, 3600}]),
+        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, [{ttl, 3600}]),
+
+    ?assertEqual(Expected, Actual).
+
+sign_v4_query_params_with_put_method_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"PUT">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
+
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=f4db56459304dafaa603a99a23c6bea8821890259a65c18ff503a4a72a80efd9&",
+        "X-Amz-SignedHeaders=host">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []),
 
     ?assertEqual(Expected, Actual).
 
