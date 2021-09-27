@@ -1,6 +1,6 @@
 {application, aws_signature,
  [{description, "Request signature implementation for authorizing AWS API calls"},
-  {vsn, "0.1.1"},
+  {vsn, "0.2.0"},
   {registered, []},
   {applications,
    [kernel,
