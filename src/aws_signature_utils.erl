@@ -52,7 +52,12 @@ hex(N, upper) when N < 16 ->
 %%
 %% An alternative to `uri_string:parse/1' to support OTP below 21.
 -spec parse_url(binary()) -> #{host => binary(), path => binary(), query => binary()}.
-parse_url(URL) when is_binary(URL) ->
+-ifdef(OTP_RELEASE). % OTP >= 21
+  parse_url(URL) when is_binary(URL) ->
+    #{host := Host, path := Path} = P = uri_string:parse(URL),
+    #{host => Host, path => Path, query => maps:get(query, P, <<>>)}.
+-else. % OTP < 21
+  parse_url(URL) when is_binary(URL) ->
     %% From https://datatracker.ietf.org/doc/html/rfc3986#appendix-B
     {ok, Regex} = re:compile("^(([a-z][a-z0-9\\+\\-\\.]*):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?", [caseless]),
 
@@ -64,6 +69,7 @@ parse_url(URL) when is_binary(URL) ->
         _ ->
             #{host => <<"">>, path => <<"">>, query => <<"">>}
     end.
+-endif.
 
 -spec rebuilds_url_with_query_params(binary(), [{binary(), binary()}]) -> binary().
 rebuilds_url_with_query_params(OriginalURL, QueryParams) ->
