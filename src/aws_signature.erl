@@ -197,16 +197,30 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
 %% Formats the given datetime into YYMMDDTHHMMSSZ binary string.
 -spec format_datetime_long(calendar:datetime()) -> binary().
 format_datetime_long({{Y, Mo, D}, {H, Mn, S}}) ->
-    Format = "~4.10.0B~2.10.0B~2.10.0BT~2.10.0B~2.10.0B~2.10.0BZ",
-    IsoString = io_lib:format(Format, [Y, Mo, D, H, Mn, S]),
-    list_to_binary(IsoString).
+    Date = format_date(Y, Mo, D),
+    Timestamp = format_timestamp(Date, H, Mn, S),
+    Timestamp.
+
+format_date(Y, M0, D0) ->
+    M = maybe_add_padding(M0),
+    D = maybe_add_padding(D0),
+    <<(integer_to_binary(Y))/binary, M/binary, D/binary>>.
+
+format_timestamp(Date, H0, Min0, S0) ->
+    H = maybe_add_padding(H0),
+    Min = maybe_add_padding(Min0),
+    S = maybe_add_padding(S0),
+    <<Date/binary, "T", H/binary, Min/binary, S/binary, "Z">>.
+
+maybe_add_padding(X) when X < 10 ->
+    <<"0", (integer_to_binary(X))/binary>>;
+maybe_add_padding(X) ->
+    integer_to_binary(X).
 
 %% Formats the given datetime into YYMMDD binary string.
 -spec format_datetime_short(calendar:datetime()) -> binary().
 format_datetime_short({{Y, Mo, D}, _}) ->
-    Format = "~4.10.0B~2.10.0B~2.10.0B",
-    IsoString = io_lib:format(Format, [Y, Mo, D]),
-    list_to_binary(IsoString).
+    format_date(Y, Mo, D).
 
 -spec add_authorization_header(headers(), binary()) -> headers().
 add_authorization_header(Headers, Authorization) ->
@@ -774,6 +788,16 @@ sign_v4_query_params_with_put_method_test() ->
     Actual =
         sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []),
 
+    ?assertEqual(Expected, Actual).
+
+format_date_long_test() ->
+    Expected = <<"20210126T200815Z">>,
+    Actual = format_datetime_long({{2021,1,26}, {20,8,15}}),
+    ?assertEqual(Expected, Actual).
+
+format_date_short_test() ->
+    Expected = <<"20210126">>,
+    Actual = format_datetime_short({{2021,1,26}, {20,8,15}}),
     ?assertEqual(Expected, Actual).
 
 -endif.
