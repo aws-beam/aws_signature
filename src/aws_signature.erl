@@ -82,7 +82,8 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
     FinalHeaders0 = add_date_header(Headers, LongDate),
     FinalHeaders = add_content_hash_header(FinalHeaders0, Body),
 
-    CanonicalRequest = canonical_request(Method, URLMap, FinalHeaders, Body, URIEncodePath),
+    BodyDigest = aws_signature_utils:sha256_hexdigest(Body),
+    CanonicalRequest = canonical_request(Method, URLMap, FinalHeaders, BodyDigest, URIEncodePath),
     HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
     CredentialScope = credential_scope(ShortDate, Region, Service),
     SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
@@ -143,6 +144,17 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
 %% <dd>
 %% Optional credential parameter if using credentials sourced from the STS service.
 %% </dd>
+%% <dt>`body'</dt>
+%% <dd>
+%% Request body to compute SHA256 digest for. Defaults to an empty binary. Note that
+%% `body_digest' always takes precedence when set.
+%% </dd>
+%% <dt>`body_digest'</dt>
+%% <dd>
+%% Optional SHA256 digest of the request body. This option can be used to provide
+%% a fixed digest value, such as "UNSIGNED-PAYLOAD", when sending requests without
+%% signing the body, <strong>which is expected for S3</strong>.
+%% </dd>
 %% </dl>
 -spec sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Options) -> FinalURL
     when AccessKeyID :: binary(),
@@ -153,7 +165,12 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
          Method :: binary(),
          URL :: binary(),
          Options :: [Option],
-         Option :: {uri_encode_path, boolean()} | {session_token, binary()} | {ttl, non_neg_integer()},
+         Option ::
+             {uri_encode_path, boolean()}
+             | {session_token, binary()}
+             | {ttl, non_neg_integer()}
+             | {body, binary()}
+             | {body_digest, binary()},
          FinalURL :: binary().
 sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Options)
     when is_binary(AccessKeyID),
@@ -167,7 +184,14 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
     TimeToLive = proplists:get_value(ttl, Options, 86400),
     SessionToken = proplists:get_value(session_token, Options, undefined),
-    Body = <<"UNSIGNED-PAYLOAD">>,
+    BodyDigest =
+        case proplists:get_value(body_digest, Options, undefined) of
+            undefined ->
+                Body = proplists:get_value(body, Options, <<"">>),
+                aws_signature_utils:sha256_hexdigest(Body);
+            Digest ->
+                Digest
+        end,
     BaseParams =
         [{<<"X-Amz-Algorithm">>, <<"AWS4-HMAC-SHA256">>},
          {<<"X-Amz-SignedHeaders">>, <<"host">>}],
@@ -185,7 +209,7 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
     HostHeader = host_header_from_url(URLMap),
 
     CanonicalRequest =
-        canonical_request(Method, URLMap, [HostHeader], Body, URIEncodePath, FinalQueryParams),
+        canonical_request(Method, URLMap, [HostHeader], BodyDigest, URIEncodePath, FinalQueryParams),
 
     HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
     SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
@@ -318,7 +342,7 @@ canonical_request(Method, URL, Headers, Body, URIEncodePath) ->
                         boolean(),
                         query_params()) ->
                            binary().
-canonical_request(Method, URLMap, Headers, Body, URIEncodePath, AdditionalQueryParams) ->
+canonical_request(Method, URLMap, Headers, BodyDigest, URIEncodePath, AdditionalQueryParams) ->
     CanonicalMethod = canonical_method(Method),
     #{path := Path, query := Query} = URLMap,
     CanonicalURL = canonical_path(Path, URIEncodePath),
@@ -326,13 +350,12 @@ canonical_request(Method, URLMap, Headers, Body, URIEncodePath, AdditionalQueryP
     CanonicalQueryString = canonical_query(QueryEntries ++ AdditionalQueryParams),
     CanonicalHeaders = canonical_headers(Headers),
     SignedHeaders = signed_headers(Headers),
-    UnsignedBodyOrPayloadHash = unsigned_body_or_payload_hash(Body),
     aws_signature_utils:binary_join([CanonicalMethod,
                                      CanonicalURL,
                                      CanonicalQueryString,
                                      CanonicalHeaders,
                                      SignedHeaders,
-                                     UnsignedBodyOrPayloadHash],
+                                     BodyDigest],
                                     <<"\n">>).
 
 %% Normalizes HTTP method name by uppercasing it.
@@ -413,11 +436,6 @@ signed_headers(Headers) ->
 signed_header({Name, _}) ->
     list_to_binary(string:strip(
                        string:to_lower(binary_to_list(Name)))).
-
-unsigned_body_or_payload_hash(<<"UNSIGNED-PAYLOAD">> = Body) ->
-    Body;
-unsigned_body_or_payload_hash(Body) ->
-    aws_signature_utils:sha256_hexdigest(Body).
 
 %%====================================================================
 
@@ -572,13 +590,13 @@ canonical_request_test() ->
           "a=&b=1", $\n,
           "host:example.com", $\n, "x-amz-date:20150325T105958Z", $\n, $\n,
           "host;x-amz-date", $\n,
-          "230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5">>,
+          "content-sha256">>,
 
     Actual = canonical_request(
         <<"get">>,
         #{path => <<"/pa%20th">>, query => <<"b=1&a=">>},
         [{<<"Host">>, <<"example.com">>}, {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
-        <<"body">>,
+        <<"content-sha256">>,
         true),
 
     ?assertEqual(Expected, Actual).
@@ -591,10 +609,10 @@ canonical_request_with_encode_uri_path_false_test() ->
           "", $\n,
           $\n,
           $\n,
-          "230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5">>,
+          "content-sha256">>,
 
     Actual =
-        canonical_request(<<"get">>, #{path => <<"/pa%20th">>, query => <<"">>}, [], <<"body">>, false),
+        canonical_request(<<"get">>, #{path => <<"/pa%20th">>, query => <<"">>}, [], <<"content-sha256">>, false),
 
     ?assertEqual(Expected, Actual).
 
@@ -614,43 +632,14 @@ canonical_request_with_extra_query_params_test() ->
           $\n,
           "host;x-amz-date",
           $\n,
-          "230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5">>,
+          "content-sha256">>,
 
     Actual =
         canonical_request(<<"get">>,
                           #{path => <<"/pa%20th">>, query => <<"b=1&a=">>},
                           [{<<"Host">>, <<"example.com">>},
                            {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
-                          <<"body">>,
-                          true,
-                          [{<<"c">>, <<"2">>}, {<<"d">>, <<"3">>}]),
-
-    ?assertEqual(Expected, Actual).
-
-%% canonical_request/5 returns a canonical request binary string without hashing when unsigned body
-canonical_request_without_hashing_unsigned_body_test() ->
-    Expected =
-        <<"GET",
-          $\n,
-          "/pa%2520th",
-          $\n,
-          "a=&b=1&c=2&d=3",
-          $\n,
-          "host:example.com",
-          $\n,
-          "x-amz-date:20150325T105958Z",
-          $\n,
-          $\n,
-          "host;x-amz-date",
-          $\n,
-          "UNSIGNED-PAYLOAD">>,
-
-    Actual =
-        canonical_request(<<"get">>,
-                          #{path => <<"/pa%20th">>, query => <<"b=1&a=">>},
-                          [{<<"Host">>, <<"example.com">>},
-                           {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
-                          <<"UNSIGNED-PAYLOAD">>,
+                          <<"content-sha256">>,
                           true,
                           [{<<"c">>, <<"2">>}, {<<"d">>, <<"3">>}]),
 
@@ -672,14 +661,14 @@ canonical_request_with_only_additional_query_params_test() ->
           $\n,
           "host;x-amz-date",
           $\n,
-          "UNSIGNED-PAYLOAD">>,
+          "content-sha256">>,
 
     Actual =
         canonical_request(<<"get">>,
                           #{path => <<"/pa%20th">>, query => <<"">>},
                           [{<<"Host">>, <<"example.com">>},
                            {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
-                          <<"UNSIGNED-PAYLOAD">>,
+                          <<"content-sha256">>,
                           true,
                           [{<<"c">>, <<"2">>}, {<<"d">>, <<"3">>}]),
 
@@ -705,7 +694,14 @@ sign_v4_query_params_reference_example_1_test() ->
         "X-Amz-SignedHeaders=host">>,
 
     Actual =
-        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []),
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             Method,
+                             URL,
+                             [{body_digest, <<"UNSIGNED-PAYLOAD">>}]),
 
     ?assertEqual(Expected, Actual).
 
@@ -738,7 +734,7 @@ sign_v4_query_params_reference_example_2_with_session_token_test() ->
                              DateTime,
                              Method,
                              URL,
-                             [{session_token, SessionToken}]),
+                             [{body_digest, <<"UNSIGNED-PAYLOAD">>}, {session_token, SessionToken}]),
 
     ?assertEqual(Expected, Actual).
 
@@ -758,12 +754,19 @@ sign_v4_query_params_merge_existing_query_params_with_ttl_test() ->
         "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
         "X-Amz-Date=20130524T000000Z&",
         "X-Amz-Expires=3600&",
-        "X-Amz-Signature=f2ddcc871a0ebb0bc2231124526668f80a50d76271bea22996d020da40198c3a&",
+        "X-Amz-Signature=ec8b95e4cf1cc811afc9e29eb7c3959f8832b1ddd36800a082d1c8e6d51f6b8a&",
         "X-Amz-SignedHeaders=host&",
         "X-Another=param">>,
 
     Actual =
-        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, [{ttl, 3600}]),
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             Method,
+                             URL,
+                             [{ttl, 3600}]),
 
     ?assertEqual(Expected, Actual).
 
@@ -782,11 +785,94 @@ sign_v4_query_params_with_put_method_test() ->
         "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
         "X-Amz-Date=20130524T000000Z&",
         "X-Amz-Expires=86400&",
-        "X-Amz-Signature=f4db56459304dafaa603a99a23c6bea8821890259a65c18ff503a4a72a80efd9&",
+        "X-Amz-Signature=2f382d203f44c23831e0b740f8bc389dc4367991d3001843c8a4fccefe56a0ad&",
         "X-Amz-SignedHeaders=host">>,
 
     Actual =
         sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []),
+
+    ?assertEqual(Expected, Actual).
+
+sign_v4_query_params_with_no_body_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
+
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=2f96f106e896a51445dbd699bd79337027afef2fd1d841506882218daeaf9b3c&",
+        "X-Amz-SignedHeaders=host">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []),
+
+    ?assertEqual(Expected, Actual).
+
+sign_v4_query_params_with_body_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
+
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=2f803843262d253ddc309d3bdd705c054cf39f863ce347a35c9b66f8f651a62d&",
+        "X-Amz-SignedHeaders=host">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             Method,
+                             URL,
+                             [{body, <<"body">>}]),
+
+    ?assertEqual(Expected, Actual).
+
+sign_v4_query_params_with_body_digest_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
+
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404&",
+        "X-Amz-SignedHeaders=host">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             Method,
+                             URL,
+                             [{body_digest, <<"UNSIGNED-PAYLOAD">>}]),
 
     ?assertEqual(Expected, Actual).
 
