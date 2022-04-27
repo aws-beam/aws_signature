@@ -55,7 +55,16 @@ hex(N, upper) when N < 16 ->
 -ifdef(OTP_RELEASE). % OTP >= 21
   parse_url(URL) when is_binary(URL) ->
     #{host := Host, path := Path} = P = uri_string:parse(URL),
-    #{host => Host, path => Path, query => maps:get(query, P, <<>>)}.
+
+    FinalHost =
+        case maps:get(port, P, undefined) of
+            undefined -> Host;
+            Port ->
+                FinalPort = list_to_binary(integer_to_list(Port)),
+                <<Host/binary, ":", FinalPort/binary>>
+        end,
+
+    #{host => FinalHost, path => Path, query => maps:get(query, P, <<>>)}.
 -else. % OTP < 21
   parse_url(URL) when is_binary(URL) ->
     %% From https://datatracker.ietf.org/doc/html/rfc3986#appendix-B
