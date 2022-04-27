@@ -56,13 +56,8 @@ hex(N, upper) when N < 16 ->
   parse_url(URL) when is_binary(URL) ->
     #{host := Host, path := Path} = P = uri_string:parse(URL),
 
-    FinalHost =
-        case maps:get(port, P, undefined) of
-            undefined -> Host;
-            Port ->
-                FinalPort = list_to_binary(integer_to_list(Port)),
-                <<Host/binary, ":", FinalPort/binary>>
-        end,
+    Port = format_port(maps:get(port, P, undefined)),
+    FinalHost = <<Host/binary, Port/binary>>,
 
     #{host => FinalHost, path => Path, query => maps:get(query, P, <<>>)}.
 -else. % OTP < 21
@@ -118,6 +113,18 @@ uri_encode_path_byte(Byte) ->
     H = Byte band 16#F0 bsr 4,
     L = Byte band 16#0F,
     <<"%", (aws_signature_utils:hex(H, upper)), (aws_signature_utils:hex(L, upper))>>.
+
+%% @doc Formats the port number (if present).
+%%
+%% If the port is defined and is not a "standard port" like 80 or 443,
+%% converts it to binary and prepends a colon. Otherwise, return an empty binary.
+-spec format_port(integer() | undefined) -> binary().
+format_port(undefined) -> <<>>;
+format_port(80) -> <<>>;
+format_port(443) -> <<>>;
+format_port(Port) ->
+    FinalPort = list_to_binary(integer_to_list(Port)),
+    <<":", FinalPort/binary>>.
 
 %% This can be simplified if we drop support for OTP < 21
 %% This can be removed if we drop support for OTP < 23
