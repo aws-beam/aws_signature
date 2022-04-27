@@ -876,6 +876,66 @@ sign_v4_query_params_with_body_digest_test() ->
 
     ?assertEqual(Expected, Actual).
 
+sign_v4_query_params_with_authority_port_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"http://bucket.localhost:9000/test.txt">>,
+
+    Expected =
+        <<"http://bucket.localhost:9000/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=3dd62e9f64b1c393bfc3d2902e5d5474b629113acd965dbd52ea3d874c83921b&",
+        "X-Amz-SignedHeaders=host">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             Method,
+                             URL,
+                             [{body_digest, <<"UNSIGNED-PAYLOAD">>}]),
+
+    ?assertEqual(Expected, Actual).
+
+sign_v4_query_params_with_authority_well_known_port_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"http://bucket.localhost:80/test.txt">>,
+
+    Expected =
+        <<"http://bucket.localhost:80/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=12778f8b6fc2cb5cce0fee8b218428fb8261c99a145613232d47be9aa38d1d85&",
+        "X-Amz-SignedHeaders=host">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             Method,
+                             URL,
+                             [{body_digest, <<"UNSIGNED-PAYLOAD">>}]),
+
+    ?assertEqual(Expected, Actual).
+
 format_date_long_test() ->
     Expected = <<"20210126T200815Z">>,
     Actual = format_datetime_long({{2021,1,26}, {20,8,15}}),
