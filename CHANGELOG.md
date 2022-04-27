@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [v0.3.1](https://github.com/aws-beam/aws_signature/tree/v0.3.1) (2022-04-27)
+
+### Fixed
+
+- Signature for URLs with explicit port component ([#18](https://github.com/aws-beam/aws_signature/pull/18))
+
 ## [v0.3.0](https://github.com/aws-beam/aws_signature/tree/v0.3.0) (2022-04-12)
 
 This release changes the default behaviour of `sign_v4_query_params`. Instead of
