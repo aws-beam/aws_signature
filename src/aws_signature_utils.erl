@@ -116,8 +116,8 @@ uri_encode_path_byte(Byte) ->
 
 %% @doc Formats the port number (if present).
 %%
-%% If the port is defined and is not a "standard port" like 80 or 443,
-%% converts it to binary and prepends a colon. Otherwise, return an empty binary.
+%% If the port is defined and is not a "standard port" (like 80 or 443),
+%% converts it to binary and prepends a colon. Otherwise, returns an empty binary.
 -spec format_port(integer() | undefined) -> binary().
 format_port(undefined) -> <<>>;
 format_port(80) -> <<>>;
