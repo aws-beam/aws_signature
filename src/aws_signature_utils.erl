@@ -50,6 +50,9 @@ hex(N, upper) when N < 16 ->
 
 %% @doc Parses the given URL, returning the host, path and query components.
 %%
+%% The parsed `host' is normalized, such that it includes the port, if and
+%% only if a not-standard port (80 or 443) is present in the URL.
+%%
 %% An alternative to `uri_string:parse/1' to support OTP below 21.
 -spec parse_url(binary()) -> #{host => binary(), path => binary(), query => binary()}.
 -ifdef(OTP_RELEASE). % OTP >= 21
@@ -57,9 +60,17 @@ hex(N, upper) when N < 16 ->
     #{host := Host, path := Path} = P = uri_string:parse(URL),
 
     Port = format_port(maps:get(port, P, undefined)),
-    FinalHost = <<Host/binary, Port/binary>>,
+    NormalizedHost = <<Host/binary, Port/binary>>,
 
-    #{host => FinalHost, path => Path, query => maps:get(query, P, <<>>)}.
+    #{host => NormalizedHost, path => Path, query => maps:get(query, P, <<>>)}.
+
+  format_port(undefined) -> <<>>;
+  format_port(80) -> <<>>;
+  format_port(443) -> <<>>;
+  format_port(Port) ->
+      FinalPort = list_to_binary(integer_to_list(Port)),
+      <<":", FinalPort/binary>>.
+
 -else. % OTP < 21
   parse_url(URL) when is_binary(URL) ->
     %% From https://datatracker.ietf.org/doc/html/rfc3986#appendix-B
@@ -67,11 +78,23 @@ hex(N, upper) when N < 16 ->
 
     case re:run(URL, Regex, [{capture, all, binary}]) of
         {match, [_, _1, _2, _3, Authority, Path, _6, Query | _]} ->
-            #{host => Authority, path => Path, query => Query};
+            #{host => authority_to_host(Authority), path => Path, query => Query};
         {match, [_, _1, _2, _3, Authority, Path | _]} ->
-            #{host => Authority, path => Path, query => <<"">>};
+            #{host => authority_to_host(Authority), path => Path, query => <<"">>};
         _ ->
             #{host => <<"">>, path => <<"">>, query => <<"">>}
+    end.
+
+  authority_to_host(Authority) ->
+    Authority1 = remove_trailing(Authority, <<":80">>),
+    remove_trailing(Authority1, <<":443">>).
+
+  remove_trailing(Binary, Sufix) ->
+    SufixSize = byte_size(Sufix),
+    PrefixSize = byte_size(Binary) - SufixSize,
+    case Binary of
+      <<Prefix:PrefixSize/binary, Sufix/binary>> -> Prefix;
+      _Else -> Binary
     end.
 -endif.
 
@@ -113,18 +136,6 @@ uri_encode_path_byte(Byte) ->
     H = Byte band 16#F0 bsr 4,
     L = Byte band 16#0F,
     <<"%", (aws_signature_utils:hex(H, upper)), (aws_signature_utils:hex(L, upper))>>.
-
-%% @doc Formats the port number (if present).
-%%
-%% If the port is defined and is not a "standard port" (like 80 or 443),
-%% converts it to binary and prepends a colon. Otherwise, returns an empty binary.
--spec format_port(integer() | undefined) -> binary().
-format_port(undefined) -> <<>>;
-format_port(80) -> <<>>;
-format_port(443) -> <<>>;
-format_port(Port) ->
-    FinalPort = list_to_binary(integer_to_list(Port)),
-    <<":", FinalPort/binary>>.
 
 %% This can be simplified if we drop support for OTP < 21
 %% This can be removed if we drop support for OTP < 23
@@ -223,6 +234,18 @@ parse_url_with_full_url_test() ->
     ?assertEqual(
         parse_url(<<"https://example.com/path/to/file/?a=1&b&c=2#fragment">>),
         #{host => <<"example.com">>, path => <<"/path/to/file/">>, query => <<"a=1&b&c=2">>}).
+
+%% parse_url/1 omits standard port number in the host
+parse_url_with_standard_port() ->
+    ?assertEqual(
+        parse_url(<<"https://example.com:443">>),
+        #{host => <<"example.com">>, path => <<"">>, query => <<"">>}).
+
+%% parse_url/1 includes non-standard port number in the host
+parse_url_with_non_standard_port() ->
+    ?assertEqual(
+        parse_url(<<"https://example.com:3000">>),
+        #{host => <<"example.com:3000">>, path => <<"">>, query => <<"">>}).
 
 %% uri_encode_path/1 keeps forward slash and unreserved characters unchanged
 uri_encode_path_with_forward_slash_test() ->
