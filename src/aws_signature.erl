@@ -1,16 +1,56 @@
 %% @doc This module contains functions for signing requests to AWS services.
 -module(aws_signature).
 
--export([sign_v4/9, sign_v4/10, sign_v4_query_params/7, sign_v4_query_params/8]).
+-export([sign_v4/9, sign_v4/10, sign_v4_query_params/7, sign_v4_query_params/8,
+         sign_v4_event_stream_message/6, format_datetime_long/1]).
 
 -type header() :: {binary(), binary()}.
 -type headers() :: [header()].
 -type query_param() :: {binary(), binary()}.
 -type query_params() :: [query_param()].
 
+sign_v4_event_stream_message(SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             PriorSignature,
+                             Body) ->
+    LongDate = format_datetime_long(DateTime),
+    ShortDate = format_datetime_short(DateTime),
+    Keypath = credential_scope(ShortDate, Region, Service),
+
+    DateTimeHeaderString = aws_signature_utils:binary_join([<<":date">>, LongDate], <<" ">>),
+    DateTimeHeaderDigest = aws_signature_utils:sha256_hexdigest(DateTimeHeaderString),
+    BodyDigest = aws_signature_utils:sha256_hexdigest(Body),
+    SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
+    StringToSign =
+        string_to_sign_event_stream_message(LongDate,
+                                            Keypath,
+                                            aws_signature_utils:base16(PriorSignature),
+                                            DateTimeHeaderDigest,
+                                            BodyDigest),
+    aws_signature_utils:hmac_sha256_hexdigest(SigningKey, StringToSign).
+
 %% @doc Same as {@link sign_v4/10} with no options.
-sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body) ->
-    sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, []).
+sign_v4(AccessKeyID,
+        SecretAccessKey,
+        Region,
+        Service,
+        DateTime,
+        Method,
+        URL,
+        Headers,
+        Body) ->
+    sign_v4(AccessKeyID,
+            SecretAccessKey,
+            Region,
+            Service,
+            DateTime,
+            Method,
+            URL,
+            Headers,
+            Body,
+            []).
 
 %% @doc Implements the <a href="https://docs.aws.amazon.com/general/latest/gr/signature-version-4.html">Signature Version 4 (SigV4)</a> algorithm.
 %%
@@ -50,7 +90,17 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 %% by AWS. Defaults to `true'.
 %% </dd>
 %% </dl>
--spec sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options) -> FinalHeaders
+-spec sign_v4(AccessKeyID,
+              SecretAccessKey,
+              Region,
+              Service,
+              DateTime,
+              Method,
+              URL,
+              Headers,
+              Body,
+              Options) ->
+                 FinalHeaders
     when AccessKeyID :: binary(),
          SecretAccessKey :: binary(),
          Region :: binary(),
@@ -63,17 +113,19 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
          Options :: [Option],
          Option :: {uri_encode_path, boolean()},
          FinalHeaders :: headers().
-sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options)
-    when is_binary(AccessKeyID),
-         is_binary(SecretAccessKey),
-         is_binary(Region),
-         is_binary(Service),
-         is_tuple(DateTime),
-         is_binary(Method),
-         is_binary(URL),
-         is_list(Headers),
-         is_binary(Body),
-         is_list(Options) ->
+sign_v4(AccessKeyID,
+        SecretAccessKey,
+        Region,
+        Service,
+        DateTime,
+        Method,
+        URL,
+        Headers,
+        Body,
+        Options)
+    when is_binary(AccessKeyID), is_binary(SecretAccessKey), is_binary(Region),
+         is_binary(Service), is_tuple(DateTime), is_binary(Method), is_binary(URL),
+         is_list(Headers), is_binary(Body), is_list(Options) ->
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
 
     URLMap = aws_signature_utils:parse_url(URL),
@@ -83,7 +135,8 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
     FinalHeaders = add_content_hash_header(FinalHeaders0, Body),
 
     BodyDigest = aws_signature_utils:sha256_hexdigest(Body),
-    CanonicalRequest = canonical_request(Method, URLMap, FinalHeaders, BodyDigest, URIEncodePath),
+    CanonicalRequest =
+        canonical_request(Method, URLMap, FinalHeaders, BodyDigest, URIEncodePath),
     HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
     CredentialScope = credential_scope(ShortDate, Region, Service),
     SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
@@ -95,8 +148,21 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
     add_authorization_header(FinalHeaders, Authorization).
 
 %% @doc Same as {@link sign_v4_query_params/7} with no options.
-sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL) ->
-    sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []).
+sign_v4_query_params(AccessKeyID,
+                     SecretAccessKey,
+                     Region,
+                     Service,
+                     DateTime,
+                     Method,
+                     URL) ->
+    sign_v4_query_params(AccessKeyID,
+                         SecretAccessKey,
+                         Region,
+                         Service,
+                         DateTime,
+                         Method,
+                         URL,
+                         []).
 
 %% @doc Implements the <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html">Signature Version 4 (SigV4)</a> algorithm for query parameters.
 %%
@@ -156,7 +222,15 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
 %% signing the body, <strong>which is expected for S3</strong>.
 %% </dd>
 %% </dl>
--spec sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Options) -> FinalURL
+-spec sign_v4_query_params(AccessKeyID,
+                           SecretAccessKey,
+                           Region,
+                           Service,
+                           DateTime,
+                           Method,
+                           URL,
+                           Options) ->
+                              FinalURL
     when AccessKeyID :: binary(),
          SecretAccessKey :: binary(),
          Region :: binary(),
@@ -166,20 +240,22 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
          URL :: binary(),
          Options :: [Option],
          Option ::
-             {uri_encode_path, boolean()}
-             | {session_token, binary()}
-             | {ttl, non_neg_integer()}
-             | {body, binary()}
-             | {body_digest, binary()},
+             {uri_encode_path, boolean()} |
+             {session_token, binary()} |
+             {ttl, non_neg_integer()} |
+             {body, binary()} |
+             {body_digest, binary()},
          FinalURL :: binary().
-sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Options)
-    when is_binary(AccessKeyID),
-         is_binary(SecretAccessKey),
-         is_binary(Region),
-         is_binary(Service),
-         is_tuple(DateTime),
-         is_binary(Method),
-         is_binary(URL),
+sign_v4_query_params(AccessKeyID,
+                     SecretAccessKey,
+                     Region,
+                     Service,
+                     DateTime,
+                     Method,
+                     URL,
+                     Options)
+    when is_binary(AccessKeyID), is_binary(SecretAccessKey), is_binary(Region),
+         is_binary(Service), is_tuple(DateTime), is_binary(Method), is_binary(URL),
          is_list(Options) ->
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
     TimeToLive = proplists:get_value(ttl, Options, 86400),
@@ -209,7 +285,12 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
     HostHeader = host_header_from_url(URLMap),
 
     CanonicalRequest =
-        canonical_request(Method, URLMap, [HostHeader], BodyDigest, URIEncodePath, FinalQueryParams),
+        canonical_request(Method,
+                          URLMap,
+                          [HostHeader],
+                          BodyDigest,
+                          URIEncodePath,
+                          FinalQueryParams),
 
     HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
     SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
@@ -276,7 +357,8 @@ sort_query_params_with_signature(QueryParams, Signature) ->
 
     lists:sort(fun({K1, _}, {K2, _}) -> K1 =< K2 end, FinalQueryParams).
 
--spec build_final_url_with_signature(binary(), map(), query_params(), binary()) -> binary().
+-spec build_final_url_with_signature(binary(), map(), query_params(), binary()) ->
+                                        binary().
 build_final_url_with_signature(OriginalURL, URLMap, QueryParams, Signature) ->
     #{query := Query} = URLMap,
 
@@ -297,17 +379,21 @@ add_content_hash_header(Headers, Body) ->
 %% Generates an AWS4-HMAC-SHA256 authorization signature.
 -spec authorization(binary(), binary(), binary(), binary()) -> binary().
 authorization(AccessKeyID, CredentialScope, SignedHeaders, Signature) ->
-    << "AWS4-HMAC-SHA256 ",
-       "Credential=", AccessKeyID/binary,
-       "/", CredentialScope/binary,
-       ",SignedHeaders=", SignedHeaders/binary,
-       ",Signature=", Signature/binary >>.
+    <<"AWS4-HMAC-SHA256 ",
+      "Credential=",
+      AccessKeyID/binary,
+      "/",
+      CredentialScope/binary,
+      ",SignedHeaders=",
+      SignedHeaders/binary,
+      ",Signature=",
+      Signature/binary>>.
 
 %% Generates a signing key from a secret access key, a short date in YYMMDD
 %% format, a region identifier and a service identifier.
 -spec signing_key(binary(), binary(), binary(), binary()) -> binary().
 signing_key(SecretAccessKey, ShortDate, Region, Service) ->
-    SigningKey = << <<"AWS4">>/binary, SecretAccessKey/binary >>,
+    SigningKey = <<<<"AWS4">>/binary, SecretAccessKey/binary>>,
     SignedDate = aws_signature_utils:hmac_sha256(SigningKey, ShortDate),
     SignedRegion = aws_signature_utils:hmac_sha256(SignedDate, Region),
     SignedService = aws_signature_utils:hmac_sha256(SignedRegion, Service),
@@ -330,6 +416,19 @@ string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest) ->
                                      HashedCanonicalRequest],
                                     <<"\n">>).
 
+string_to_sign_event_stream_message(LongDate,
+                                    Keypath,
+                                    PriorSignature,
+                                    HeaderDigest,
+                                    PayloadDigest) ->
+    aws_signature_utils:binary_join([<<"AWS4-HMAC-SHA256">>,
+                                     LongDate,
+                                     Keypath,
+                                     PriorSignature,
+                                     HeaderDigest,
+                                     PayloadDigest],
+                                    <<"\n">>).
+
 %% Processes and merges request values into a canonical request.
 -spec canonical_request(binary(), map(), headers(), binary(), boolean()) -> binary().
 canonical_request(Method, URL, Headers, Body, URIEncodePath) ->
@@ -342,7 +441,12 @@ canonical_request(Method, URL, Headers, Body, URIEncodePath) ->
                         boolean(),
                         query_params()) ->
                            binary().
-canonical_request(Method, URLMap, Headers, BodyDigest, URIEncodePath, AdditionalQueryParams) ->
+canonical_request(Method,
+                  URLMap,
+                  Headers,
+                  BodyDigest,
+                  URIEncodePath,
+                  AdditionalQueryParams) ->
     CanonicalMethod = canonical_method(Method),
     #{path := Path, query := Query} = URLMap,
     CanonicalURL = canonical_path(Path, URIEncodePath),
@@ -386,7 +490,8 @@ canonical_query(QueryParams) when is_list(QueryParams) ->
     aws_signature_utils:binary_join(NormalizedParts, <<"&">>).
 
 -spec query_entries(binary()) -> [{binary(), binary()}].
-query_entries(<<"">>) -> [];
+query_entries(<<"">>) ->
+    [];
 query_entries(Query) ->
     Parts = binary:split(Query, <<"&">>, [global]),
     SplittedParts = [binary:split(Part, <<"=">>) || Part <- Parts],
@@ -451,18 +556,33 @@ sign_v4_test() ->
     Service = <<"ec2">>,
     DateTime = {{2015, 5, 14}, {16, 50, 5}},
     Method = <<"GET">>,
-    URL = <<"https://ec2.us-east-1.amazonaws.com/?Action=DescribeInstances&Version=2014-10-01">>,
+    URL = <<"https://ec2.us-east-1.amazonaws.com/?Action=DescribeInstances&Versio"
+            "n=2014-10-01">>,
     Headers = [{<<"Host">>, <<"ec2.us-east-1.amazonaws.com">>}, {<<"Header">>, <<"Value">>}],
     Body = <<"">>,
 
-    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body),
+    Actual =
+        sign_v4(AccessKeyID,
+                SecretAccessKey,
+                Region,
+                Service,
+                DateTime,
+                Method,
+                URL,
+                Headers,
+                Body),
 
-    Expected = [
-        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=access-key-id/20150514/us-east-1/ec2/aws4_request,SignedHeaders=header;host;x-amz-content-sha256;x-amz-date,Signature=595529f9989556c9ce375ddec1b3e63f9d551fe063738b45909c28b25a34a6cb">>},
-        {<<"X-Amz-Content-SHA256">>, <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
-        {<<"X-Amz-Date">>, <<"20150514T165005Z">>},
-        {<<"Host">>, <<"ec2.us-east-1.amazonaws.com">>},
-        {<<"Header">>, <<"Value">>}],
+    Expected =
+        [{<<"Authorization">>,
+          <<"AWS4-HMAC-SHA256 Credential=access-key-id/20150514/us-east-1/ec2/aws"
+            "4_request,SignedHeaders=header;host;x-amz-content-sha256;x-amz-date,"
+            "Signature=595529f9989556c9ce375ddec1b3e63f9d551fe063738b45909c28b25a"
+            "34a6cb">>},
+         {<<"X-Amz-Content-SHA256">>,
+          <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
+         {<<"X-Amz-Date">>, <<"20150514T165005Z">>},
+         {<<"Host">>, <<"ec2.us-east-1.amazonaws.com">>},
+         {<<"Header">>, <<"Value">>}],
 
     ?assertEqual(Actual, Expected).
 
@@ -475,17 +595,33 @@ sign_v4_reference_example_1_test() ->
     DateTime = {{2013, 5, 24}, {0, 0, 0}},
     Method = <<"GET">>,
     URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
-    Headers = [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}, {<<"Range">>, <<"bytes=0-9">>}],
+    Headers =
+        [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}, {<<"Range">>, <<"bytes=0-9">>}],
     Body = <<"">>,
 
-    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, [{uri_encode_path, false}]),
+    Actual =
+        sign_v4(AccessKeyID,
+                SecretAccessKey,
+                Region,
+                Service,
+                DateTime,
+                Method,
+                URL,
+                Headers,
+                Body,
+                [{uri_encode_path, false}]),
 
-    Expected = [
-        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;range;x-amz-content-sha256;x-amz-date,Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41">>},
-        {<<"X-Amz-Content-SHA256">>, <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
-        {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
-        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
-        {<<"Range">>, <<"bytes=0-9">>}],
+    Expected =
+        [{<<"Authorization">>,
+          <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/"
+            "s3/aws4_request,SignedHeaders=host;range;x-amz-content-sha256;x-amz-"
+            "date,Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd9103"
+            "9c6036bdb41">>},
+         {<<"X-Amz-Content-SHA256">>,
+          <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
+         {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
+         {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
+         {<<"Range">>, <<"bytes=0-9">>}],
 
     ?assertEqual(Actual, Expected).
 
@@ -498,21 +634,36 @@ sign_v4_reference_example_2_test() ->
     DateTime = {{2013, 5, 24}, {0, 0, 0}},
     Method = <<"PUT">>,
     URL = <<"https://examplebucket.s3.amazonaws.com/test%24file.text">>,
-    Headers = [
-        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
-        {<<"Date">>, <<"Fri, 24 May 2013 00:00:00 GMT">>},
-        {<<"X-Amz-Storage-Class">>, <<"REDUCED_REDUNDANCY">>}],
+    Headers =
+        [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
+         {<<"Date">>, <<"Fri, 24 May 2013 00:00:00 GMT">>},
+         {<<"X-Amz-Storage-Class">>, <<"REDUCED_REDUNDANCY">>}],
     Body = <<"Welcome to Amazon S3.">>,
 
-    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, [{uri_encode_path, false}]),
+    Actual =
+        sign_v4(AccessKeyID,
+                SecretAccessKey,
+                Region,
+                Service,
+                DateTime,
+                Method,
+                URL,
+                Headers,
+                Body,
+                [{uri_encode_path, false}]),
 
-    Expected = [
-        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=date;host;x-amz-content-sha256;x-amz-date;x-amz-storage-class,Signature=98ad721746da40c64f1a55b78f14c238d841ea1380cd77a1b5971af0ece108bd">>},
-        {<<"X-Amz-Content-SHA256">>, <<"44ce7dd67c959e0d3524ffac1771dfbba87d2b6b4b4e99e42034a8b803f8b072">>},
-        {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
-        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
-        {<<"Date">>, <<"Fri, 24 May 2013 00:00:00 GMT">>},
-        {<<"X-Amz-Storage-Class">>, <<"REDUCED_REDUNDANCY">>}],
+    Expected =
+        [{<<"Authorization">>,
+          <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/"
+            "s3/aws4_request,SignedHeaders=date;host;x-amz-content-sha256;x-amz-d"
+            "ate;x-amz-storage-class,Signature=98ad721746da40c64f1a55b78f14c238d8"
+            "41ea1380cd77a1b5971af0ece108bd">>},
+         {<<"X-Amz-Content-SHA256">>,
+          <<"44ce7dd67c959e0d3524ffac1771dfbba87d2b6b4b4e99e42034a8b803f8b072">>},
+         {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
+         {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
+         {<<"Date">>, <<"Fri, 24 May 2013 00:00:00 GMT">>},
+         {<<"X-Amz-Storage-Class">>, <<"REDUCED_REDUNDANCY">>}],
 
     ?assertEqual(Actual, Expected).
 
@@ -528,13 +679,28 @@ sign_v4_reference_example_3_test() ->
     Headers = [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
     Body = <<"">>,
 
-    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, [{uri_encode_path, false}]),
+    Actual =
+        sign_v4(AccessKeyID,
+                SecretAccessKey,
+                Region,
+                Service,
+                DateTime,
+                Method,
+                URL,
+                Headers,
+                Body,
+                [{uri_encode_path, false}]),
 
-    Expected = [
-        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,Signature=fea454ca298b7da1c68078a5d1bdbfbbe0d65c699e0f91ac7a200a0136783543">>},
-        {<<"X-Amz-Content-SHA256">>, <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
-        {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
-        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
+    Expected =
+        [{<<"Authorization">>,
+          <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/"
+            "s3/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,S"
+            "ignature=fea454ca298b7da1c68078a5d1bdbfbbe0d65c699e0f91ac7a200a01367"
+            "83543">>},
+         {<<"X-Amz-Content-SHA256">>,
+          <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
+         {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
+         {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
 
     ?assertEqual(Actual, Expected).
 
@@ -550,69 +716,96 @@ sign_v4_reference_example_4_test() ->
     Headers = [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
     Body = <<"">>,
 
-    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, [{uri_encode_path, false}]),
+    Actual =
+        sign_v4(AccessKeyID,
+                SecretAccessKey,
+                Region,
+                Service,
+                DateTime,
+                Method,
+                URL,
+                Headers,
+                Body,
+                [{uri_encode_path, false}]),
 
-    Expected = [
-        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,Signature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7">>},
-        {<<"X-Amz-Content-SHA256">>, <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
-        {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
-        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
+    Expected =
+        [{<<"Authorization">>,
+          <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/"
+            "s3/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,S"
+            "ignature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69"
+            "dc6f7">>},
+         {<<"X-Amz-Content-SHA256">>,
+          <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
+         {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
+         {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
 
     ?assertEqual(Actual, Expected).
 
 %% canonical_headers/1 sorted headers by header name
 canonical_headers_test() ->
-    Headers = [
-        {<<"User-Agent">>, <<"aws-sdk-ruby3/3.113.1 ruby/2.7.2 x86_64-linux aws-sdk-s3/1.93.0">>},
-        {<<"X-Amz-Server-Side-Encryption-Customer-Algorithm">>, <<"AES256">>},
-        {<<"X-Amz-Server-Side-Encryption-Customer-Key-Md5">>, <<"BaUscNABVnd0nRlQecUFPA==">>},
-        {<<"X-Amz-Server-Side-Encryption-Customer-Key">>, <<"TIjv09mJiv+331Evgfq8eONO2y/G4aztRqEeAwx9y2U=">>},
-        {<<"Content-Md5">>, <<"VDMfSlWzfS823+nFvkpWzg==">>},
-        {<<"Host">>, <<"aws-beam-projects-test.s3.amazonaws.com">>}],
+    Headers =
+        [{<<"User-Agent">>,
+          <<"aws-sdk-ruby3/3.113.1 ruby/2.7.2 x86_64-linux aws-sdk-s3/1.93.0">>},
+         {<<"X-Amz-Server-Side-Encryption-Customer-Algorithm">>, <<"AES256">>},
+         {<<"X-Amz-Server-Side-Encryption-Customer-Key-Md5">>, <<"BaUscNABVnd0nRlQecUFPA==">>},
+         {<<"X-Amz-Server-Side-Encryption-Customer-Key">>,
+          <<"TIjv09mJiv+331Evgfq8eONO2y/G4aztRqEeAwx9y2U=">>},
+         {<<"Content-Md5">>, <<"VDMfSlWzfS823+nFvkpWzg==">>},
+         {<<"Host">>, <<"aws-beam-projects-test.s3.amazonaws.com">>}],
 
     Actual = canonical_headers(Headers),
 
     Expected =
         <<"content-md5:VDMfSlWzfS823+nFvkpWzg==\n",
           "host:aws-beam-projects-test.s3.amazonaws.com\n",
-          "user-agent:aws-sdk-ruby3/3.113.1 ruby/2.7.2 x86_64-linux aws-sdk-s3/1.93.0\n",
+          "user-agent:aws-sdk-ruby3/3.113.1 ruby/2.7.2 x86_64-linux aws-sdk-s3/"
+          "1.93.0\n",
           "x-amz-server-side-encryption-customer-algorithm:AES256\n",
-          "x-amz-server-side-encryption-customer-key:TIjv09mJiv+331Evgfq8eONO2y/G4aztRqEeAwx9y2U=\n",
-          "x-amz-server-side-encryption-customer-key-md5:BaUscNABVnd0nRlQecUFPA==\n">>,
+          "x-amz-server-side-encryption-customer-key:TIjv09mJiv+331Evgfq8eONO2y"
+          "/G4aztRqEeAwx9y2U=\n",
+          "x-amz-server-side-encryption-customer-key-md5:BaUscNABVnd0nRlQecUFPA"
+          "==\n">>,
 
     ?assertEqual(Expected, Actual).
 
 %% canonical_request/5 returns a connical request binary string
 canonical_request_test() ->
     Expected =
-        <<"GET", $\n,
-          "/pa%2520th", $\n,
-          "a=&b=1", $\n,
-          "host:example.com", $\n, "x-amz-date:20150325T105958Z", $\n, $\n,
-          "host;x-amz-date", $\n,
+        <<"GET",
+          $\n,
+          "/pa%2520th",
+          $\n,
+          "a=&b=1",
+          $\n,
+          "host:example.com",
+          $\n,
+          "x-amz-date:20150325T105958Z",
+          $\n,
+          $\n,
+          "host;x-amz-date",
+          $\n,
           "content-sha256">>,
 
-    Actual = canonical_request(
-        <<"get">>,
-        #{path => <<"/pa%20th">>, query => <<"b=1&a=">>},
-        [{<<"Host">>, <<"example.com">>}, {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
-        <<"content-sha256">>,
-        true),
+    Actual =
+        canonical_request(<<"get">>,
+                          #{path => <<"/pa%20th">>, query => <<"b=1&a=">>},
+                          [{<<"Host">>, <<"example.com">>},
+                           {<<"X-Amz-Date">>, <<"20150325T105958Z">>}],
+                          <<"content-sha256">>,
+                          true),
 
     ?assertEqual(Expected, Actual).
 
 %% canonical_request/4 does not encode the path when disabled
 canonical_request_with_encode_uri_path_false_test() ->
-    Expected =
-        <<"GET", $\n,
-          "/pa%20th", $\n,
-          "", $\n,
-          $\n,
-          $\n,
-          "content-sha256">>,
+    Expected = <<"GET", $\n, "/pa%20th", $\n, "", $\n, $\n, $\n, "content-sha256">>,
 
     Actual =
-        canonical_request(<<"get">>, #{path => <<"/pa%20th">>, query => <<"">>}, [], <<"content-sha256">>, false),
+        canonical_request(<<"get">>,
+                          #{path => <<"/pa%20th">>, query => <<"">>},
+                          [],
+                          <<"content-sha256">>,
+                          false),
 
     ?assertEqual(Expected, Actual).
 
@@ -686,12 +879,14 @@ sign_v4_query_params_reference_example_1_test() ->
 
     Expected =
         <<"https://examplebucket.s3.amazonaws.com/test.txt?",
-        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
-        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
-        "X-Amz-Date=20130524T000000Z&",
-        "X-Amz-Expires=86400&",
-        "X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404&",
-        "X-Amz-SignedHeaders=host">>,
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2F"
+          "aws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=86400&",
+          "X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d15"
+          "7751f604d404&",
+          "X-Amz-SignedHeaders=host">>,
 
     Actual =
         sign_v4_query_params(AccessKeyID,
@@ -719,11 +914,13 @@ sign_v4_query_params_reference_example_2_with_session_token_test() ->
     Expected =
         <<"https://examplebucket.s3.amazonaws.com/test.txt?",
           "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
-          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2F"
+          "aws4_request&",
           "X-Amz-Date=20130524T000000Z&",
           "X-Amz-Expires=86400&",
           "X-Amz-Security-Token=my-session-token&",
-          "X-Amz-Signature=127498ec2e996f60915eba27520e69b1554fe016da1d36a3dde70f2408551d67&",
+          "X-Amz-Signature=127498ec2e996f60915eba27520e69b1554fe016da1d36a3dde7"
+          "0f2408551d67&",
           "X-Amz-SignedHeaders=host">>,
 
     Actual =
@@ -734,7 +931,8 @@ sign_v4_query_params_reference_example_2_with_session_token_test() ->
                              DateTime,
                              Method,
                              URL,
-                             [{body_digest, <<"UNSIGNED-PAYLOAD">>}, {session_token, SessionToken}]),
+                             [{body_digest, <<"UNSIGNED-PAYLOAD">>},
+                              {session_token, SessionToken}]),
 
     ?assertEqual(Expected, Actual).
 
@@ -745,18 +943,21 @@ sign_v4_query_params_merge_existing_query_params_with_ttl_test() ->
     Service = <<"s3">>,
     DateTime = {{2013, 5, 24}, {0, 0, 0}},
     Method = <<"GET">>,
-    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt?A-param=value&X-Another=param">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt?A-param=value&X-Anot"
+            "her=param">>,
 
     Expected =
         <<"https://examplebucket.s3.amazonaws.com/test.txt?",
-        "A-param=value&",
-        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
-        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
-        "X-Amz-Date=20130524T000000Z&",
-        "X-Amz-Expires=3600&",
-        "X-Amz-Signature=ec8b95e4cf1cc811afc9e29eb7c3959f8832b1ddd36800a082d1c8e6d51f6b8a&",
-        "X-Amz-SignedHeaders=host&",
-        "X-Another=param">>,
+          "A-param=value&",
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2F"
+          "aws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=3600&",
+          "X-Amz-Signature=ec8b95e4cf1cc811afc9e29eb7c3959f8832b1ddd36800a082d1"
+          "c8e6d51f6b8a&",
+          "X-Amz-SignedHeaders=host&",
+          "X-Another=param">>,
 
     Actual =
         sign_v4_query_params(AccessKeyID,
@@ -781,15 +982,24 @@ sign_v4_query_params_with_put_method_test() ->
 
     Expected =
         <<"https://examplebucket.s3.amazonaws.com/test.txt?",
-        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
-        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
-        "X-Amz-Date=20130524T000000Z&",
-        "X-Amz-Expires=86400&",
-        "X-Amz-Signature=2f382d203f44c23831e0b740f8bc389dc4367991d3001843c8a4fccefe56a0ad&",
-        "X-Amz-SignedHeaders=host">>,
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2F"
+          "aws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=86400&",
+          "X-Amz-Signature=2f382d203f44c23831e0b740f8bc389dc4367991d3001843c8a4"
+          "fccefe56a0ad&",
+          "X-Amz-SignedHeaders=host">>,
 
     Actual =
-        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []),
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             Method,
+                             URL,
+                             []),
 
     ?assertEqual(Expected, Actual).
 
@@ -804,15 +1014,24 @@ sign_v4_query_params_with_no_body_test() ->
 
     Expected =
         <<"https://examplebucket.s3.amazonaws.com/test.txt?",
-        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
-        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
-        "X-Amz-Date=20130524T000000Z&",
-        "X-Amz-Expires=86400&",
-        "X-Amz-Signature=2f96f106e896a51445dbd699bd79337027afef2fd1d841506882218daeaf9b3c&",
-        "X-Amz-SignedHeaders=host">>,
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2F"
+          "aws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=86400&",
+          "X-Amz-Signature=2f96f106e896a51445dbd699bd79337027afef2fd1d841506882"
+          "218daeaf9b3c&",
+          "X-Amz-SignedHeaders=host">>,
 
     Actual =
-        sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, []),
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             Method,
+                             URL,
+                             []),
 
     ?assertEqual(Expected, Actual).
 
@@ -827,12 +1046,14 @@ sign_v4_query_params_with_body_test() ->
 
     Expected =
         <<"https://examplebucket.s3.amazonaws.com/test.txt?",
-        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
-        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
-        "X-Amz-Date=20130524T000000Z&",
-        "X-Amz-Expires=86400&",
-        "X-Amz-Signature=2f803843262d253ddc309d3bdd705c054cf39f863ce347a35c9b66f8f651a62d&",
-        "X-Amz-SignedHeaders=host">>,
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2F"
+          "aws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=86400&",
+          "X-Amz-Signature=2f803843262d253ddc309d3bdd705c054cf39f863ce347a35c9b"
+          "66f8f651a62d&",
+          "X-Amz-SignedHeaders=host">>,
 
     Actual =
         sign_v4_query_params(AccessKeyID,
@@ -857,12 +1078,14 @@ sign_v4_query_params_with_body_digest_test() ->
 
     Expected =
         <<"https://examplebucket.s3.amazonaws.com/test.txt?",
-        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
-        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
-        "X-Amz-Date=20130524T000000Z&",
-        "X-Amz-Expires=86400&",
-        "X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404&",
-        "X-Amz-SignedHeaders=host">>,
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2F"
+          "aws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=86400&",
+          "X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d15"
+          "7751f604d404&",
+          "X-Amz-SignedHeaders=host">>,
 
     Actual =
         sign_v4_query_params(AccessKeyID,
@@ -887,12 +1110,14 @@ sign_v4_query_params_with_authority_port_test() ->
 
     Expected =
         <<"http://bucket.localhost:9000/test.txt?",
-        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
-        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
-        "X-Amz-Date=20130524T000000Z&",
-        "X-Amz-Expires=86400&",
-        "X-Amz-Signature=3dd62e9f64b1c393bfc3d2902e5d5474b629113acd965dbd52ea3d874c83921b&",
-        "X-Amz-SignedHeaders=host">>,
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2F"
+          "aws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=86400&",
+          "X-Amz-Signature=3dd62e9f64b1c393bfc3d2902e5d5474b629113acd965dbd52ea"
+          "3d874c83921b&",
+          "X-Amz-SignedHeaders=host">>,
 
     Actual =
         sign_v4_query_params(AccessKeyID,
@@ -917,12 +1142,14 @@ sign_v4_query_params_with_authority_well_known_port_test() ->
 
     Expected =
         <<"http://bucket.localhost:80/test.txt?",
-        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
-        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
-        "X-Amz-Date=20130524T000000Z&",
-        "X-Amz-Expires=86400&",
-        "X-Amz-Signature=12778f8b6fc2cb5cce0fee8b218428fb8261c99a145613232d47be9aa38d1d85&",
-        "X-Amz-SignedHeaders=host">>,
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2F"
+          "aws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=86400&",
+          "X-Amz-Signature=12778f8b6fc2cb5cce0fee8b218428fb8261c99a145613232d47"
+          "be9aa38d1d85&",
+          "X-Amz-SignedHeaders=host">>,
 
     Actual =
         sign_v4_query_params(AccessKeyID,
@@ -938,12 +1165,12 @@ sign_v4_query_params_with_authority_well_known_port_test() ->
 
 format_date_long_test() ->
     Expected = <<"20210126T200815Z">>,
-    Actual = format_datetime_long({{2021,1,26}, {20,8,15}}),
+    Actual = format_datetime_long({{2021, 1, 26}, {20, 8, 15}}),
     ?assertEqual(Expected, Actual).
 
 format_date_short_test() ->
     Expected = <<"20210126">>,
-    Actual = format_datetime_short({{2021,1,26}, {20,8,15}}),
+    Actual = format_datetime_short({{2021, 1, 26}, {20, 8, 15}}),
     ?assertEqual(Expected, Actual).
 
 -endif.
