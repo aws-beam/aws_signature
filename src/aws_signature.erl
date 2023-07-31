@@ -1,7 +1,7 @@
 %% @doc This module contains functions for signing requests to AWS services.
 -module(aws_signature).
 
--export([sign_v4/9, sign_v4/10, sign_v4_event_stream_message/7, sign_v4_query_params/7, sign_v4_query_params/8]).
+-export([sign_v4/9, sign_v4/10, sign_v4_event/7, sign_v4_query_params/7, sign_v4_query_params/8]).
 
 -type header() :: {binary(), binary()}.
 -type headers() :: [header()].
@@ -94,7 +94,7 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 
     add_authorization_header(FinalHeaders, Authorization).
 
-sign_v4_event_stream_message(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body) ->
+sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body) ->
     LongDate = format_datetime_long(DateTime),
     ShortDate = format_datetime_short(DateTime),
     Keypath = credential_scope(ShortDate, Region, Service),
@@ -102,12 +102,14 @@ sign_v4_event_stream_message(SecretAccessKey, Region, Service, DateTime, PriorSi
     BodyDigest = aws_signature_utils:sha256_hexdigest(Body),
     SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
     StringToSign =
-        string_to_sign_event_stream_message(LongDate,
-                                            Keypath,
-                                            PriorSignature,
-                                            HeaderDigest,
-                                            BodyDigest),
-    aws_signature_utils:hmac_sha256(SigningKey, StringToSign).
+        string_to_sign_for_event(LongDate, Keypath, PriorSignature, HeaderDigest, BodyDigest),
+
+    Signature = aws_signature_utils:hmac_sha256(SigningKey, StringToSign),
+    EventHeaders = [
+        {<<":date">>, DateTime, timestamp},
+        {<<":chunk-signature">>, Signature, byte_array}
+    ],
+    {EventHeaders, aws_signature_utils:base16(Signature)}.
 
 %% @doc Same as {@link sign_v4_query_params/7} with no options.
 sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL) ->
@@ -345,8 +347,8 @@ string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest) ->
                                      HashedCanonicalRequest],
                                     <<"\n">>).
 
--spec string_to_sign_event_stream_message(binary(), binary(), binary(), binary(), binary()) -> binary().
-string_to_sign_event_stream_message(LongDate, Keypath, PriorSignature, HeaderDigest, PayloadDigest) ->
+-spec string_to_sign_for_event(binary(), binary(), binary(), binary(), binary()) -> binary().
+string_to_sign_for_event(LongDate, Keypath, PriorSignature, HeaderDigest, PayloadDigest) ->
     aws_signature_utils:binary_join([<<"AWS4-HMAC-SHA256-PAYLOAD">>,
                                      LongDate,
                                      Keypath,
