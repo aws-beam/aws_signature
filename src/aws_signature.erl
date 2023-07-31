@@ -104,7 +104,9 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 %% computed signature of the event, binary string, `bytes' type
 %% </dd>
 %% <dt>`:date'</dt>
+%% <dd>
 %% millisecond since epoch, `timestamp' type
+%% </dd>
 %% </dl>
 %%
 %% `PriorSignature' for the first message is the base16 encoded signv4
