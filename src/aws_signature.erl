@@ -94,6 +94,20 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 
     add_authorization_header(FinalHeaders, Authorization).
 
+%% @doc Signs an AWS Event Stream message and returns the headers and
+%% prior signature used for next event signing.
+%%
+%% Headers of a sigv4 signed event message only contains 2 headers
+%%   * ':chunk-signature'
+%%     * computed signature of the event, binary string, 'bytes' type
+%%   * ':date'
+%%     * millisecond since epoch, 'timestamp' type
+%%
+%% `PriorSignature' for the first message is the base16 encoded signv4
+%% of the request used to open a connection with the target service.
+%%
+%% `HeadersSing' are the headers of the inner packet, encoded using the
+%% EventStream format.
 -spec sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body) -> {Headers, Signature}
     when SecretAccessKey :: binary(),
          Region :: binary(),
