@@ -95,7 +95,7 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
     add_authorization_header(FinalHeaders, Authorization).
 
 %% @doc Signs an AWS Event Stream message and returns the headers and
-%% prior signature used for next event signing.
+%% signature used for next event signing.
 %%
 %% Headers of a sigv4 signed event message only contains 2 headers
 %%   * ':chunk-signature'
