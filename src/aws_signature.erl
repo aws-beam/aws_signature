@@ -106,7 +106,7 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 %% `PriorSignature' for the first message is the base16 encoded signv4
 %% of the request used to open a connection with the target service.
 %%
-%% `HeadersSing' are the headers of the inner packet, encoded using the
+%% `HeadersString' are the headers of the inner packet, encoded using the
 %% EventStream format.
 -spec sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body) -> {Headers, Signature}
     when SecretAccessKey :: binary(),
