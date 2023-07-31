@@ -2,7 +2,7 @@
 -module(aws_signature).
 
 -export([sign_v4/9, sign_v4/10, sign_v4_query_params/7, sign_v4_query_params/8,
-         sign_v4_event_stream_message/7, format_datetime_long/1]).
+         sign_v4_event_stream_message/6, format_datetime_long/1]).
 
 -type header() :: {binary(), binary()}.
 -type headers() :: [header()].
@@ -14,22 +14,22 @@ sign_v4_event_stream_message(SecretAccessKey,
                              Service,
                              DateTime,
                              PriorSignature,
-                             HeaderString,
                              Body) ->
     LongDate = format_datetime_long(DateTime),
     ShortDate = format_datetime_short(DateTime),
     Keypath = credential_scope(ShortDate, Region, Service),
-    HeaderDigest = aws_signature_utils:sha256_hexdigest(HeaderString),
+
+    DateTimeHeaderString = aws_signature_utils:binary_join([<<":date">>, LongDate], <<" ">>),
+    DateTimeHeaderDigest = aws_signature_utils:sha256_hexdigest(DateTimeHeaderString),
     BodyDigest = aws_signature_utils:sha256_hexdigest(Body),
     SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
     StringToSign =
         string_to_sign_event_stream_message(LongDate,
                                             Keypath,
-                                            %% aws_signature_utils:base16(PriorSignature),
-                                            PriorSignature,
-                                            HeaderDigest,
+                                            aws_signature_utils:base16(PriorSignature),
+                                            DateTimeHeaderDigest,
                                             BodyDigest),
-    aws_signature_utils:hmac_sha256(SigningKey, StringToSign).
+    aws_signature_utils:hmac_sha256_hexdigest(SigningKey, StringToSign).
 
 %% @doc Same as {@link sign_v4/10} with no options.
 sign_v4(AccessKeyID,
@@ -421,7 +421,7 @@ string_to_sign_event_stream_message(LongDate,
                                     PriorSignature,
                                     HeaderDigest,
                                     PayloadDigest) ->
-    aws_signature_utils:binary_join([<<"AWS4-HMAC-SHA256-PAYLOAD">>,
+    aws_signature_utils:binary_join([<<"AWS4-HMAC-SHA256">>,
                                      LongDate,
                                      Keypath,
                                      PriorSignature,
