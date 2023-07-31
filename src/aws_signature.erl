@@ -587,6 +587,26 @@ sign_v4_reference_example_4_test() ->
 
     ?assertEqual(Actual, Expected).
 
+sign_v4_event_test() ->
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"transcribe">>,
+    DateTime = {{2023, 7, 31}, {11, 36, 12}},
+    PriorSignature = <<"ce2704cf5f348fd66f179d5883162f223c30b3fb8213fb1bc097bf2ecd34b1b5">>,
+    % EventStream encoded header of {":date", DateTime, :timestamp}
+    HeaderString = <<5, 58, 100, 97, 116, 101, 8, 0, 0, 1, 137, 171, 187, 255, 224>>,
+
+    {ActualHeaders, ActualSignature} = sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, <<>>),
+
+    ExpectedHeaders = [
+        {<<":date">>, DateTime, timestamp},
+        {<<":chunk-signature">>,<<41, 239, 130, 195, 152, 80, 171, 220, 198, 95, 157, 96, 70, 243, 228, 55, 227, 133, 17, 43, 128, 183, 241, 123, 49, 186, 51, 167, 218, 60, 200, 175>>, byte_array}
+    ],
+    ExpectedSignature = <<"29ef82c39850abdcc65f9d6046f3e437e385112b80b7f17b31ba33a7da3cc8af">>,
+
+    ?assertEqual(ActualHeaders, ExpectedHeaders),
+    ?assertEqual(ActualSignature, ExpectedSignature).
+
 %% canonical_headers/1 sorted headers by header name
 canonical_headers_test() ->
     Headers = [
