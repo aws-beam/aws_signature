@@ -98,10 +98,14 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 %% signature used for next event signing.
 %%
 %% Headers of a sigv4 signed event message only contains 2 headers
-%%   * ':chunk-signature'
-%%     * computed signature of the event, binary string, 'bytes' type
-%%   * ':date'
-%%     * millisecond since epoch, 'timestamp' type
+%% <dl>
+%% <dt>`:chunk-signature'</dt>
+%% <dd>
+%% computed signature of the event, binary string, `bytes' type
+%% </dd>
+%% <dt>`:date'</dt>
+%% millisecond since epoch, `timestamp' type
+%% </dl>
 %%
 %% `PriorSignature' for the first message is the base16 encoded signv4
 %% of the request used to open a connection with the target service.
