@@ -94,7 +94,24 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 
     add_authorization_header(FinalHeaders, Authorization).
 
-sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body) ->
+-spec sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body) -> {Headers, Signature}
+    when SecretAccessKey :: binary(),
+         Region :: binary(),
+         Service :: binary(),
+         DateTime :: calendar:datetime(),
+         PriorSignature :: binary(),
+         HeaderString :: binary(),
+         Body :: binary(),
+         Headers :: headers(),
+         Signature :: binary().
+sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body)
+    when is_binary(SecretAccessKey),
+         is_binary(Region),
+         is_binary(Service),
+         is_tuple(DateTime),
+         is_binary(PriorSignature),
+         is_binary(HeaderString),
+         is_binary(Body) ->
     LongDate = format_datetime_long(DateTime),
     ShortDate = format_datetime_short(DateTime),
     Keypath = credential_scope(ShortDate, Region, Service),
