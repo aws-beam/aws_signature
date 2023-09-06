@@ -12,7 +12,7 @@ To install, just add it to your dependencies in `mix.exs`:
 ```elixir
 defp deps() do
   [
-    {:aws_signature, "~> 0.3.1"}
+    {:aws_signature, "~> 0.4.0"}
   ]
 end
 ```
@@ -20,5 +20,5 @@ end
 or `rebar.config`:
 
 ```erlang
-{deps, [{aws_signature, "~> 0.3.1"}]}.
+{deps, [{aws_signature, "~> 0.4.0"}]}.
 ```
