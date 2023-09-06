@@ -1,7 +1,7 @@
 %% @doc This module contains functions for signing requests to AWS services.
 -module(aws_signature).
 
--export([sign_v4/9, sign_v4/10, sign_v4_query_params/7, sign_v4_query_params/8]).
+-export([sign_v4/9, sign_v4/10, sign_v4_event/7, sign_v4_query_params/7, sign_v4_query_params/8]).
 
 -type header() :: {binary(), binary()}.
 -type headers() :: [header()].
@@ -93,6 +93,60 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
     Authorization = authorization(AccessKeyID, CredentialScope, SignedHeaders, Signature),
 
     add_authorization_header(FinalHeaders, Authorization).
+
+%% @doc Signs an AWS Event Stream message and returns the headers and
+%% signature used for next event signing.
+%%
+%% Headers of a sigv4 signed event message only contains 2 headers
+%% <dl>
+%% <dt>`:chunk-signature'</dt>
+%% <dd>
+%% computed signature of the event, binary string, `bytes' type
+%% </dd>
+%% <dt>`:date'</dt>
+%% <dd>
+%% millisecond since epoch, `timestamp' type
+%% </dd>
+%% </dl>
+%%
+%% `PriorSignature' for the first message is the base16 encoded signv4
+%% of the request used to open a connection with the target service.
+%%
+%% `HeadersString' are the headers of the inner packet, encoded using the
+%% EventStream format.
+-spec sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body) -> {Headers, Signature}
+    when SecretAccessKey :: binary(),
+         Region :: binary(),
+         Service :: binary(),
+         DateTime :: calendar:datetime(),
+         PriorSignature :: binary(),
+         HeaderString :: binary(),
+         Body :: binary(),
+         Headers :: headers(),
+         Signature :: binary().
+sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body)
+    when is_binary(SecretAccessKey),
+         is_binary(Region),
+         is_binary(Service),
+         is_tuple(DateTime),
+         is_binary(PriorSignature),
+         is_binary(HeaderString),
+         is_binary(Body) ->
+    LongDate = format_datetime_long(DateTime),
+    ShortDate = format_datetime_short(DateTime),
+    Keypath = credential_scope(ShortDate, Region, Service),
+    HeaderDigest = aws_signature_utils:sha256_hexdigest(HeaderString),
+    BodyDigest = aws_signature_utils:sha256_hexdigest(Body),
+    SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
+    StringToSign =
+        string_to_sign_for_event(LongDate, Keypath, PriorSignature, HeaderDigest, BodyDigest),
+
+    Signature = aws_signature_utils:hmac_sha256(SigningKey, StringToSign),
+    EventHeaders = [
+        {<<":date">>, DateTime, timestamp},
+        {<<":chunk-signature">>, Signature, byte_array}
+    ],
+    {EventHeaders, aws_signature_utils:base16(Signature)}.
 
 %% @doc Same as {@link sign_v4_query_params/7} with no options.
 sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL) ->
@@ -330,6 +384,16 @@ string_to_sign(LongDate, CredentialScope, HashedCanonicalRequest) ->
                                      HashedCanonicalRequest],
                                     <<"\n">>).
 
+-spec string_to_sign_for_event(binary(), binary(), binary(), binary(), binary()) -> binary().
+string_to_sign_for_event(LongDate, Keypath, PriorSignature, HeaderDigest, PayloadDigest) ->
+    aws_signature_utils:binary_join([<<"AWS4-HMAC-SHA256-PAYLOAD">>,
+                                     LongDate,
+                                     Keypath,
+                                     PriorSignature,
+                                     HeaderDigest,
+                                     PayloadDigest],
+                                    <<"\n">>).
+
 %% Processes and merges request values into a canonical request.
 -spec canonical_request(binary(), map(), headers(), binary(), boolean()) -> binary().
 canonical_request(Method, URL, Headers, Body, URIEncodePath) ->
@@ -559,6 +623,26 @@ sign_v4_reference_example_4_test() ->
         {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
 
     ?assertEqual(Actual, Expected).
+
+sign_v4_event_test() ->
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"transcribe">>,
+    DateTime = {{2023, 7, 31}, {11, 36, 12}},
+    PriorSignature = <<"ce2704cf5f348fd66f179d5883162f223c30b3fb8213fb1bc097bf2ecd34b1b5">>,
+    % EventStream encoded header of {":date", DateTime, :timestamp}
+    HeaderString = <<5, 58, 100, 97, 116, 101, 8, 0, 0, 1, 137, 171, 187, 255, 224>>,
+
+    {ActualHeaders, ActualSignature} = sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, <<>>),
+
+    ExpectedHeaders = [
+        {<<":date">>, DateTime, timestamp},
+        {<<":chunk-signature">>,<<41, 239, 130, 195, 152, 80, 171, 220, 198, 95, 157, 96, 70, 243, 228, 55, 227, 133, 17, 43, 128, 183, 241, 123, 49, 186, 51, 167, 218, 60, 200, 175>>, byte_array}
+    ],
+    ExpectedSignature = <<"29ef82c39850abdcc65f9d6046f3e437e385112b80b7f17b31ba33a7da3cc8af">>,
+
+    ?assertEqual(ActualHeaders, ExpectedHeaders),
+    ?assertEqual(ActualSignature, ExpectedSignature).
 
 %% canonical_headers/1 sorted headers by header name
 canonical_headers_test() ->
