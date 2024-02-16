@@ -53,7 +53,7 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 %% <dd>
 %% Optional SHA256 digest of the request body. This option can be used to provide
 %% a fixed digest value, such as "UNSIGNED-PAYLOAD", when sending requests without
-%% signing the body, <strong>which is expected for S3</strong>.
+%% signing the body.
 %% </dd>
 %% </dl>
 -spec sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options) -> FinalHeaders
