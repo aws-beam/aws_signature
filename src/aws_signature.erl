@@ -49,6 +49,12 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
 %% this results in each segment being URI-encoded twice, as expected
 %% by AWS. Defaults to `true'.
 %% </dd>
+%% <dt>`body_digest'</dt>
+%% <dd>
+%% Optional SHA256 digest of the request body. This option can be used to provide
+%% a fixed digest value, such as "UNSIGNED-PAYLOAD", when sending requests without
+%% signing the body.
+%% </dd>
 %% </dl>
 -spec sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options) -> FinalHeaders
     when AccessKeyID :: binary(),
@@ -61,7 +67,9 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
          Headers :: headers(),
          Body :: binary(),
          Options :: [Option],
-         Option :: {uri_encode_path, boolean()},
+         Option ::
+             {uri_encode_path, boolean()}
+             | {body_digest, binary()},
          FinalHeaders :: headers().
 sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, Options)
     when is_binary(AccessKeyID),
@@ -80,9 +88,16 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
     LongDate = format_datetime_long(DateTime),
     ShortDate = format_datetime_short(DateTime),
     FinalHeaders0 = add_date_header(Headers, LongDate),
-    FinalHeaders = add_content_hash_header(FinalHeaders0, Body),
 
-    BodyDigest = aws_signature_utils:sha256_hexdigest(Body),
+    BodyDigest =
+        case proplists:get_value(body_digest, Options, undefined) of
+            undefined ->
+                aws_signature_utils:sha256_hexdigest(Body);
+            Digest ->
+                Digest
+        end,
+
+    FinalHeaders = add_content_hash_header(FinalHeaders0, BodyDigest),
     CanonicalRequest = canonical_request(Method, URLMap, FinalHeaders, BodyDigest, URIEncodePath),
     HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
     CredentialScope = credential_scope(ShortDate, Region, Service),
@@ -344,9 +359,8 @@ build_final_url_with_signature(OriginalURL, URLMap, QueryParams, Signature) ->
 %% This header is required for S3 when using the v4 signature. Adding it
 %% in requests for all services does not cause any issues.
 -spec add_content_hash_header(headers(), binary()) -> headers().
-add_content_hash_header(Headers, Body) ->
-    HashedBody = aws_signature_utils:sha256_hexdigest(Body),
-    [{<<"X-Amz-Content-SHA256">>, HashedBody} | Headers].
+add_content_hash_header(Headers, BodyDigest) ->
+    [{<<"X-Amz-Content-SHA256">>, BodyDigest} | Headers].
 
 %% Generates an AWS4-HMAC-SHA256 authorization signature.
 -spec authorization(binary(), binary(), binary(), binary()) -> binary().
@@ -619,6 +633,27 @@ sign_v4_reference_example_4_test() ->
     Expected = [
         {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,Signature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7">>},
         {<<"X-Amz-Content-SHA256">>, <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
+        {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
+        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
+
+    ?assertEqual(Actual, Expected).
+
+sign_v4_unsigned_payload_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com?max-keys=2&prefix=J">>,
+    Headers = [{<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
+    Body = <<"foo">>,
+
+    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, [{body_digest, <<"UNSIGNED-PAYLOAD">>}]),
+
+    Expected = [
+        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,Signature=b1a076428fa68c2c42202ee5a5718b8207f725e451e2157d6b1c393e01fc2e68">>},
+        {<<"X-Amz-Content-SHA256">>, <<"UNSIGNED-PAYLOAD">>},
         {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
         {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
 
