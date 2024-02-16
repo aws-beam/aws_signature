@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [v0.3.2](https://github.com/aws-beam/aws_signature/tree/v0.3.2) (2024-02-16)
+
+### Added
+
+- Add support for signing AWS event stream messages ([#23](https://github.com/aws-beam/aws_signature/pull/23))
+- Add body_digest option to sign_v4/10 ([#25](https://github.com/aws-beam/aws_signature/pull/25))
+
 ## [v0.3.1](https://github.com/aws-beam/aws_signature/tree/v0.3.1) (2022-04-27)
 
 ### Fixed
