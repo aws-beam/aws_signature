@@ -239,7 +239,8 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
              | {session_token, binary()}
              | {ttl, non_neg_integer()}
              | {body, binary()}
-             | {body_digest, binary()},
+             | {body_digest, binary()}
+             | {tag, binary()},
          FinalURL :: binary().
 sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Options)
     when is_binary(AccessKeyID),
@@ -253,6 +254,7 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
     TimeToLive = proplists:get_value(ttl, Options, 86400),
     SessionToken = proplists:get_value(session_token, Options, undefined),
+    Tag = proplists:get_value(tag, Options, undefined),
     BodyDigest =
         case proplists:get_value(body_digest, Options, undefined) of
             undefined ->
@@ -263,7 +265,13 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
         end,
     BaseParams =
         [{<<"X-Amz-Algorithm">>, <<"AWS4-HMAC-SHA256">>},
-         {<<"X-Amz-SignedHeaders">>, <<"host">>}],
+         {<<"X-Amz-SignedHeaders">>,
+          if Tag == undefined ->
+                  <<"host">>;
+             Tag =/= undefined ->
+                  hackney_url:urlencode(<<"host;x-amz-tagging">>)
+          end}
+        ],
 
     URLMap = aws_signature_utils:parse_url(URL),
     LongDate = format_datetime_long(DateTime),
@@ -273,12 +281,19 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
     FinalQueryParams1 =
         add_credential_query_param(FinalQueryParams0, CredentialScope, AccessKeyID),
     FinalQueryParams2 = maybe_add_session_token_query_param(FinalQueryParams1, SessionToken),
+    FinalQueryParams3 = maybe_add_tag_query_param(FinalQueryParams2, Tag),
 
-    FinalQueryParams = add_date_header(FinalQueryParams2, LongDate),
+    FinalQueryParams = add_date_header(FinalQueryParams3, LongDate),
     HostHeader = host_header_from_url(URLMap),
+    Headers =
+        if Tag == undefined ->
+                [HostHeader];
+           Tag =/= undefined ->
+                [HostHeader, {<<"X-Amz-Tagging">>, hackney_url:urldecode(Tag)}]
+        end,
 
     CanonicalRequest =
-        canonical_request(Method, URLMap, [HostHeader], BodyDigest, URIEncodePath, FinalQueryParams),
+        canonical_request(Method, URLMap, Headers, BodyDigest, URIEncodePath, FinalQueryParams),
 
     HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
     SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
@@ -339,6 +354,11 @@ maybe_add_session_token_query_param(QueryParams, undefined) ->
     QueryParams;
 maybe_add_session_token_query_param(QueryParams, SessionToken) ->
     [{<<"X-Amz-Security-Token">>, SessionToken} | QueryParams].
+
+maybe_add_tag_query_param(QueryParams, undefined) ->
+    QueryParams;
+maybe_add_tag_query_param(QueryParams, Tag) ->
+    [{<<"X-Amz-Tagging">>, Tag} | QueryParams].
 
 sort_query_params_with_signature(QueryParams, Signature) ->
     FinalQueryParams = [{<<"X-Amz-Signature">>, Signature} | QueryParams],
