@@ -240,7 +240,7 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
              | {ttl, non_neg_integer()}
              | {body, binary()}
              | {body_digest, binary()}
-             | {tag, binary()},
+             | {tags, proplists:proplist()},
          FinalURL :: binary().
 sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Options)
     when is_binary(AccessKeyID),
@@ -254,7 +254,7 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
     TimeToLive = proplists:get_value(ttl, Options, 86400),
     SessionToken = proplists:get_value(session_token, Options, undefined),
-    Tag = proplists:get_value(tag, Options, undefined),
+    Tags = proplists:get_value(tags, Options, undefined),
     BodyDigest =
         case proplists:get_value(body_digest, Options, undefined) of
             undefined ->
@@ -263,16 +263,10 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
             Digest ->
                 Digest
         end,
-    BaseParams =
+    BaseParams0 =
         [{<<"X-Amz-Algorithm">>, <<"AWS4-HMAC-SHA256">>},
-         {<<"X-Amz-SignedHeaders">>,
-          if Tag == undefined ->
-                  <<"host">>;
-             Tag =/= undefined ->
-                  hackney_url:urlencode(<<"host;x-amz-tagging">>)
-          end}
-        ],
-
+         {<<"X-Amz-SignedHeaders">>, <<"host">>}],
+    BaseParams = maybe_add_tag_header(BaseParams0, Tags),
     URLMap = aws_signature_utils:parse_url(URL),
     LongDate = format_datetime_long(DateTime),
     ShortDate = format_datetime_short(DateTime),
@@ -281,15 +275,14 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
     FinalQueryParams1 =
         add_credential_query_param(FinalQueryParams0, CredentialScope, AccessKeyID),
     FinalQueryParams2 = maybe_add_session_token_query_param(FinalQueryParams1, SessionToken),
-    FinalQueryParams3 = maybe_add_tag_query_param(FinalQueryParams2, Tag),
 
-    FinalQueryParams = add_date_header(FinalQueryParams3, LongDate),
+    FinalQueryParams = add_date_header(FinalQueryParams2, LongDate),
     HostHeader = host_header_from_url(URLMap),
     Headers =
-        if Tag == undefined ->
+        if Tags == undefined ->
                 [HostHeader];
-           Tag =/= undefined ->
-                [HostHeader, {<<"X-Amz-Tagging">>, hackney_url:urldecode(Tag)}]
+           Tags =/= undefined ->
+                [HostHeader, {<<"X-Amz-Tagging">>, uri_string:compose_query(Tags)}]
         end,
 
     CanonicalRequest =
@@ -301,6 +294,11 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
     Signature = aws_signature_utils:hmac_sha256_hexdigest(SigningKey, StringToSign),
 
     build_final_url_with_signature(URL, URLMap, FinalQueryParams, Signature).
+
+maybe_add_tag_header(Headers, undefined) ->
+    Headers;
+maybe_add_tag_header(Headers, Tags) ->
+    [{<<"X-Amz-Tagging">>, uri_string:compose_query(Tags)} | Headers].
 
 %% Formats the given datetime into YYMMDDTHHMMSSZ binary string.
 -spec format_datetime_long(calendar:datetime()) -> binary().
@@ -357,8 +355,8 @@ maybe_add_session_token_query_param(QueryParams, SessionToken) ->
 
 maybe_add_tag_query_param(QueryParams, undefined) ->
     QueryParams;
-maybe_add_tag_query_param(QueryParams, Tag) ->
-    [{<<"X-Amz-Tagging">>, Tag} | QueryParams].
+maybe_add_tag_query_param(QueryParams, Tags) ->
+    [{<<"X-Amz-Tagging">>, uri_string:compose_query(Tags)} | QueryParams].
 
 sort_query_params_with_signature(QueryParams, Signature) ->
     FinalQueryParams = [{<<"X-Amz-Signature">>, Signature} | QueryParams],
@@ -1073,6 +1071,38 @@ sign_v4_query_params_with_authority_well_known_port_test() ->
                              URL,
                              [{body_digest, <<"UNSIGNED-PAYLOAD">>}]),
 
+    ?assertEqual(Expected, Actual).
+
+
+sign_v4_query_params_with_tags_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"http://bucket.localhost:80/test.txt">>,
+
+    Expected =
+        <<"http://bucket.localhost:80/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=5326a526132b9f5e9ba348700f9a7cec996a0fff31a411eb2bc7713e9219d1de&",
+        "X-Amz-SignedHeaders=host&",
+        "X-Amz-Tagging=key1=value1&key2=value2">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID,
+                              SecretAccessKey,
+                              Region,
+                              Service,
+                              DateTime,
+                              Method,
+                              URL,
+                              [{body_digest, <<"UNSIGNED-PAYLOAD">>},
+                               {tags, [{<<"key1">>, <<"value1">>}, {<<"key2">>, <<"value2">>}]}]),
     ?assertEqual(Expected, Actual).
 
 format_date_long_test() ->
