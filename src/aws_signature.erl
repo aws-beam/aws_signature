@@ -282,7 +282,7 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
         if Tags == undefined ->
                 [HostHeader];
            Tags =/= undefined ->
-                [HostHeader, {<<"X-Amz-Tagging">>, uri_string:compose_query(Tags)}]
+                [HostHeader, {<<"x-amz-tagging">>, uri_string:compose_query(Tags)}]
         end,
 
     CanonicalRequest =
@@ -352,11 +352,6 @@ maybe_add_session_token_query_param(QueryParams, undefined) ->
     QueryParams;
 maybe_add_session_token_query_param(QueryParams, SessionToken) ->
     [{<<"X-Amz-Security-Token">>, SessionToken} | QueryParams].
-
-maybe_add_tag_query_param(QueryParams, undefined) ->
-    QueryParams;
-maybe_add_tag_query_param(QueryParams, Tags) ->
-    [{<<"X-Amz-Tagging">>, uri_string:compose_query(Tags)} | QueryParams].
 
 sort_query_params_with_signature(QueryParams, Signature) ->
     FinalQueryParams = [{<<"X-Amz-Signature">>, Signature} | QueryParams],
