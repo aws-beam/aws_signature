@@ -224,6 +224,14 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
 %% a fixed digest value, such as "UNSIGNED-PAYLOAD", when sending requests without
 %% signing the body, <strong>which is expected for S3</strong>.
 %% </dd>
+%% <dt>`tags'</dt>
+%% <dd>
+%% Optional tagging of the object when generating a pre-signed URL.
+%% The value of `tags' is a binary() in the format, for example:
+%% `<<"key1=value1&key2=value2">>'. The actual request to put or get the object
+%% must use the exact `tags' value to ensure the signature is calculated
+%% correctly.
+%% </dd>
 %% </dl>
 -spec sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Options) -> FinalURL
     when AccessKeyID :: binary(),
@@ -239,7 +247,8 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
              | {session_token, binary()}
              | {ttl, non_neg_integer()}
              | {body, binary()}
-             | {body_digest, binary()},
+             | {body_digest, binary()}
+             | {tags, binary()},
          FinalURL :: binary().
 sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Options)
     when is_binary(AccessKeyID),
@@ -253,6 +262,7 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
     TimeToLive = proplists:get_value(ttl, Options, 86400),
     SessionToken = proplists:get_value(session_token, Options, undefined),
+    Tags = proplists:get_value(tags, Options, undefined),
     BodyDigest =
         case proplists:get_value(body_digest, Options, undefined) of
             undefined ->
@@ -263,7 +273,13 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
         end,
     BaseParams =
         [{<<"X-Amz-Algorithm">>, <<"AWS4-HMAC-SHA256">>},
-         {<<"X-Amz-SignedHeaders">>, <<"host">>}],
+         {<<"X-Amz-SignedHeaders">>,
+          if Tags == undefined ->
+                  <<"host">>;
+             Tags =/= undefined ->
+                  <<"host%3Bx-amz-tagging">>
+          end}
+        ],
 
     URLMap = aws_signature_utils:parse_url(URL),
     LongDate = format_datetime_long(DateTime),
@@ -276,9 +292,15 @@ sign_v4_query_params(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Me
 
     FinalQueryParams = add_date_header(FinalQueryParams2, LongDate),
     HostHeader = host_header_from_url(URLMap),
+    Headers =
+        if Tags == undefined ->
+                [HostHeader];
+           Tags =/= undefined ->
+                [HostHeader, {<<"X-Amz-Tagging">>, Tags}]
+        end,
 
     CanonicalRequest =
-        canonical_request(Method, URLMap, [HostHeader], BodyDigest, URIEncodePath, FinalQueryParams),
+        canonical_request(Method, URLMap, Headers, BodyDigest, URIEncodePath, FinalQueryParams),
 
     HashedCanonicalRequest = aws_signature_utils:sha256_hexdigest(CanonicalRequest),
     SigningKey = signing_key(SecretAccessKey, ShortDate, Region, Service),
@@ -1052,6 +1074,36 @@ sign_v4_query_params_with_authority_well_known_port_test() ->
                              Method,
                              URL,
                              [{body_digest, <<"UNSIGNED-PAYLOAD">>}]),
+
+    ?assertEqual(Expected, Actual).
+
+sign_v4_query_params_with_tagging_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
+
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+        "X-Amz-Date=20130524T000000Z&",
+        "X-Amz-Expires=86400&",
+        "X-Amz-Signature=5c14ef7998d657c3b8293b37abefaef5fa98cc775bcbfffdb2027f4ce05772ef&",
+        "X-Amz-SignedHeaders=host%3Bx-amz-tagging">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             Method,
+                             URL,
+                             [{tags, <<"key1=value1&key2=value2">>}]),
 
     ?assertEqual(Expected, Actual).
 
