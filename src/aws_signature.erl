@@ -137,7 +137,7 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
          PriorSignature :: binary(),
          HeaderString :: binary(),
          Body :: binary(),
-         Headers :: headers(),
+         Headers :: [{binary(), binary(), atom()}],
          Signature :: binary().
 sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body)
     when is_binary(SecretAccessKey),
