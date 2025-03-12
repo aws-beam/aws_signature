@@ -146,7 +146,7 @@ build_canonical_path(Signer) ->
     end,
   case Signer#internal_signer.options#v4_signer_options.disable_double_path_escape of
     true -> EscapedPath;
-    false -> aws_sigv4_strings:uri_encode(EscapedPath)
+    false -> aws_signature_utils:uri_encode_path(EscapedPath)
   end.
 
 -spec build_canonical_query(internal_signer()) -> binary().
@@ -241,7 +241,7 @@ build_authorization_header(Signer, SignedHeaders, Signature) ->
 payload_hash_string(Hash) ->
   case Hash of
     ?UNSIGNED_PAYLOAD -> Hash;
-    _ -> aws_sigv4_strings:base16(Hash)
+    _ -> aws_signature_utils:base16(Hash)
   end.
 
 -spec resolve_time(calendar:datetime() | undefined) -> calendar:datetime().
