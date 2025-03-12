@@ -2,11 +2,50 @@
 -module(aws_signature).
 
 -export([sign_v4/9, sign_v4/10, sign_v4_event/7, sign_v4_query_params/7, sign_v4_query_params/8]).
+-export([sign_v4a/10]).
 
 -type header() :: {binary(), binary()}.
 -type headers() :: [header()].
 -type query_param() :: {binary(), binary()}.
 -type query_params() :: [query_param()].
+
+%% @doc Implements the <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv.html">Asymmetric Signature Version 4 (SigV4a)</a> algorithm.
+%%
+%% This function takes AWS client credentials and request details,
+%% based on which it computes the signature and returns headers
+%% extended with the authorization entries.
+%%
+%% `URL' must be valid, with all components properly escaped.
+%% For example, "https://example.com/path%20to" is valid, whereas
+%% "https://example.com/path to" is not.
+%%
+%% It is essential that the provided request details are final
+%% and the returned headers are used to make the request. All
+%% custom headers need to be assembled before the signature is
+%% calculated.
+%%
+%% The following options are supported:
+%%
+%% <dl>
+%% <dt>`add_payload_hash_header'</dt>
+%% <dd>
+%% When `true' adds the `X-Amz-Content-Sha256' header to signed requests.
+%% Amazon S3 is an example of a service that requires this setting.
+%% Defaults to `false'.
+%% </dd>
+%% <dt>`disable_implicit_payload_hashing'</dt>
+%% <dd>
+%% When `true' use the "UNSIGNED-PAYLOAD" sentinel instead of computing
+%% SHA256 digest of the payload. Defaults to `false'.
+%% </dd>
+%% </dl>
+-spec sign_v4a(binary(), binary(), binary(), [binary()], binary(),
+               binary(), binary(), headers(), binary(), map())
+           -> {ok, headers()} | {error, any()}.
+sign_v4a(AccessKeyID, SecretAccessKey, SessionToken, Regions,
+         Service, Method, URL, Headers, Body, Options) ->
+  aws_sigv4a:sign_request(AccessKeyID, SecretAccessKey, SessionToken, Regions,
+                          Service, Method, URL, Headers, Body, Options).
 
 %% @doc Same as {@link sign_v4/10} with no options.
 sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body) ->
