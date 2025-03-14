@@ -135,7 +135,7 @@ build_canonical_request(Signer) ->
 
 -spec build_canonical_method(internal_signer()) -> binary().
 build_canonical_method(Signer) ->
-  aws_sigv4_utils:toupper(Signer#internal_signer.request#request.method).
+  string:uppercase(Signer#internal_signer.request#request.method).
 
 -spec build_canonical_path(internal_signer()) -> binary().
 build_canonical_path(Signer) ->
@@ -192,7 +192,7 @@ build_canonical_headers(Signer) ->
   SignedHeadersMap =
     lists:foldl(
       fun({Header, Value}, Map) ->
-        Lowercase = aws_sigv4_utils:tolower(Header),
+        Lowercase = string:lowercase(Header),
         case IsSigned(Lowercase) of
           true ->
             Values = maps:get(Lowercase, Map, []),
@@ -207,7 +207,7 @@ build_canonical_headers(Signer) ->
         fun({Header, Values}) ->
           [ Header
           , ":"
-          , lists:join(",", lists:map(fun aws_sigv4_utils:trimspace/1, lists:reverse(Values)))
+          , lists:join(",", lists:map(fun string:trim/1, lists:reverse(Values)))
           , "\n"
           ]
         end, SignedHeadersList)),

@@ -4,9 +4,6 @@
         , format_time_long/1
         , format_time_short/1
         , sha256/1
-        , tolower/1
-        , toupper/1
-        , trimspace/1
         ]).
 
 -spec binaries_join(binary(), [binary()]) -> binary().
@@ -44,15 +41,3 @@ maybe_pad(X) ->
 -spec sha256(binary()) -> binary().
 sha256(Binary) ->
   crypto:hash(sha256, Binary).
-
--spec tolower(binary()) -> binary().
-tolower(Binary) ->
-  list_to_binary(string:lowercase(binary_to_list(Binary))).
-
--spec toupper(binary()) -> binary().
-toupper(Binary) ->
-  list_to_binary(string:uppercase(binary_to_list(Binary))).
-
--spec trimspace(binary()) -> binary().
-trimspace(Binary) ->
-   list_to_binary(string:trim(binary_to_list(Binary))).
