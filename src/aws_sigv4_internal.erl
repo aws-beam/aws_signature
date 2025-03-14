@@ -16,14 +16,17 @@
 -include("aws_sigv4_internal.hrl").
 
 -type credentials() :: #credentials{}.
+-type headers() :: [{binary(), binary()}].
 -type internal_signer() :: #internal_signer{}.
 -type request() :: #request{}.
+-type sign_string() :: fun((binary()) -> {ok, binary()} | {error, any()}).
 -type v4_signer_options() :: #v4_signer_options{}.
 
 -export_type([ credentials/0
              , headers/0
              , internal_signer/0
              , request/0
+             , sign_string/0
              , v4_signer_options/0
              ]).
 

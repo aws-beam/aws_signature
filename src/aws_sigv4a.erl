@@ -19,8 +19,8 @@
 -define(ALGORITHM, <<"AWS4-ECDSA-P256-SHA256">>).
 
 -spec sign_request(binary(), binary(), binary(), [binary()], binary(),
-                   binary(), binary(), headers(), binary(), map())
-       -> {ok, headers()} | {error, any()}.
+                   binary(), binary(), aws_sigv4_internal:headers(), binary(), map())
+       -> {ok, aws_sigv4_internal:headers()} | {error, any()}.
 sign_request(AccessKeyID, SecretAccessKey, SessionToken, Regions,
              Service, Method, URL, Headers, Body, Options) ->
   Credentials =
@@ -56,7 +56,7 @@ sign_request(AccessKeyID, SecretAccessKey, SessionToken, Regions,
   sign_request(V4ASignerOptions, V4ASignRequestInput).
 
 -spec sign_request(aws_sigv4_internal:v4_signer_options(), v4a_sign_request_input())
-               -> {ok, headers()} | {error, any()}.
+               -> {ok, aws_sigv4_internal:headers()} | {error, any()}.
 sign_request(Options, SignRequestInput) ->
   case aws_sigv4a_credentials:derive(SignRequestInput#v4a_sign_request_input.credentials) of
     {ok, PrivateKey} ->
@@ -88,7 +88,7 @@ scope(Time, Service) ->
   <<(aws_sigv4_utils:format_time_short(Time))/binary, $/, Service/binary, $/, <<"aws4_request">>/binary>>.
 
 %% sigv4a.SignString
--spec sign_string(binary()) -> sign_string().
+-spec sign_string(binary()) -> aws_sigv4_internal:sign_string().
 sign_string(PrivateKey) ->
   fun(StrToSign) ->
     {ok, aws_signature_utils:base16(ecdsa_sign(PrivateKey, aws_sigv4_utils:sha256(StrToSign)))}
