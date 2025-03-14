@@ -1,12 +1,10 @@
 -ifndef(_AWS_SIGV4_INTERNAL_HRL_).
 -define(_AWS_SIGV4_INTERNAL_HRL_, true).
 
--type headers() :: [{binary(), binary()}].
-
 -record(request,
         { method :: binary()
         , url :: binary()
-        , headers :: headers()
+        , headers :: aws_sigv4_internal:headers()
         , body :: binary()
         , host :: binary()
         }).
@@ -21,10 +19,8 @@
 
 %% https://github.com/aws/smithy-go/blob/main/aws-http-auth/v4/v4.go
 
--type is_signed() :: fun((binary()) -> boolean()).
-
 -record(v4_signer_options,
-        { is_signed :: is_signed() | undefined
+        { is_signed :: fun((binary()) -> boolean()) | undefined
         , disable_implicit_payload_hashing = false :: boolean()
         , disable_double_path_escape = false :: boolean()
         , add_payload_hash_header = false :: boolean()
@@ -34,8 +30,6 @@
 
 %% https://github.com/aws/smithy-go/blob/main/aws-http-auth/internal/v4/signer.go
 
--type sign_string() :: fun((binary()) -> {ok, binary()} | {error, any()}).
-
 -record(internal_signer,
         { request :: aws_sigv4_internal:request()
         , payload_hash :: binary() % raw binary, NOT hex-encoded
@@ -44,7 +38,7 @@
         , options :: aws_sigv4_internal:v4_signer_options()
         , algorithm :: binary()
         , credential_scope :: binary()
-        , sign_string :: sign_string()
+        , sign_string :: aws_sigv4_internal:sign_string()
         }).
 
 %% https://github.com/aws/smithy-go/blob/main/aws-http-auth/sigv4a/sigv4a.go

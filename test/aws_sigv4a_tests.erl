@@ -268,7 +268,7 @@ test_sign_request(TT) ->
   expect_signature(Headers, TT),
   ?assertEqual(Input#v4a_sign_request_input.request#request.host, get_header(<<"Host">>, Headers)).
 
--spec expect_signature(headers(), #sign_request_test{}) -> ok.
+-spec expect_signature(aws_sigv4_internal:headers(), #sign_request_test{}) -> ok.
 expect_signature(Headers, TT) ->
   {Preamble, SignedHeaders, Signature} = get_signature(Headers),
   ?assertEqual(TT#sign_request_test.preamble, Preamble),
@@ -282,7 +282,7 @@ public_key(PrivateKey) ->
   {PublicKey, _PrivateKey} = crypto:generate_key(ecdh, secp256r1, PrivateKey),
   PublicKey.
 
--spec get_signature(headers()) -> {binary(), binary(), binary()}.
+-spec get_signature(aws_sigv4_internal:headers()) -> {binary(), binary(), binary()}.
 get_signature(Headers) ->
   Auth = get_header(<<"Authorization">>, Headers),
   [Preamble, SignedHeaders, SigPart] = binary:split(Auth, <<", ">>, [global]),
@@ -290,12 +290,12 @@ get_signature(Headers) ->
   Signature = binary:decode_hex(Hex),
   {Preamble, SignedHeaders, Signature}.
 
--spec get_header(binary(), headers()) -> binary().
+-spec get_header(binary(), aws_sigv4_internal:headers()) -> binary().
 get_header(Key, Headers) ->
   {_Key, Hdr} = lists:keyfind(Key, 1, Headers),
   Hdr.
 
--spec get_header_opt(binary(), headers()) -> binary() | false.
+-spec get_header_opt(binary(), aws_sigv4_internal:headers()) -> binary() | false.
 get_header_opt(Key, Headers) ->
   case lists:keyfind(Key, 1, Headers) of
     false -> false;
