@@ -6,12 +6,13 @@
         , resolve_time/1
         ]).
 
-%% exported for tests
+-ifdef(TEST).
 -export([ build_canonical_request/1
         , default_is_signed/1
         , resolve_payload_hash/1
         , set_required_headers/1
         ]).
+-endif.
 
 -include("aws_sigv4_internal.hrl").
 

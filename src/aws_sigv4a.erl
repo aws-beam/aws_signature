@@ -5,9 +5,10 @@
 -export([ sign_request/10
         ]).
 
-%% exported for tests
+-ifdef(TEST).
 -export([ sign_request/2
         ]).
+-endif.
 
 -include("aws_sigv4_internal.hrl").
 

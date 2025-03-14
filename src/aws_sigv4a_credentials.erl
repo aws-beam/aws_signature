@@ -5,9 +5,10 @@
 -export([ derive/1
         ]).
 
-%% exported for tests
+-ifdef(TEST).
 -export([ derive_private_key/1
         ]).
+-endif.
 
 -include("aws_sigv4_internal.hrl").
 
