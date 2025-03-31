@@ -23,6 +23,9 @@ jobs:
       - name: Run EUnit Tests
         run: rebar3 eunit
 
+      - name: Run Dialyzer
+        run: rebar3 dialyzer
+
       - name: Generate docs
         run: rebar3 ex_doc
 
