@@ -175,7 +175,7 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
          DateTime :: calendar:datetime(),
          PriorSignature :: binary(),
          HeaderString :: binary(),
-         Body :: iodata(),
+         Body :: binary(),
          Headers :: [{binary(), binary(), atom()}],
          Signature :: binary().
 sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, HeaderString, Body)
@@ -185,7 +185,7 @@ sign_v4_event(SecretAccessKey, Region, Service, DateTime, PriorSignature, Header
          is_tuple(DateTime),
          is_binary(PriorSignature),
          is_binary(HeaderString),
-         (is_binary(Body) or is_list(Body)) ->
+         is_binary(Body) ->
     LongDate = format_datetime_long(DateTime),
     ShortDate = format_datetime_short(DateTime),
     Keypath = credential_scope(ShortDate, Region, Service),
