@@ -23,7 +23,7 @@ hmac_sha256(Key, Message) ->
     crypto_hmac(sha256, Key, Message).
 
 %% @doc Creates a SHA256 hexdigest for `Value'.
--spec sha256_hexdigest(binary()) -> binary().
+-spec sha256_hexdigest(iodata()) -> binary().
 sha256_hexdigest(Value) ->
     base16(crypto:hash(sha256, Value)).
 
