@@ -119,7 +119,7 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
          is_binary(Method),
          is_binary(URL),
          is_list(Headers),
-         (is_binary(Body) or is_list(Body)),
+         (is_binary(Body) orelse is_list(Body)),
          is_list(Options) ->
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
 
