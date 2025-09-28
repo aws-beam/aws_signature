@@ -104,7 +104,7 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
          Method :: binary(),
          URL :: binary(),
          Headers :: headers(),
-         Body :: binary(),
+         Body :: iodata(),
          Options :: [Option],
          Option ::
              {uri_encode_path, boolean()}
@@ -119,7 +119,7 @@ sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, He
          is_binary(Method),
          is_binary(URL),
          is_list(Headers),
-         is_binary(Body),
+         (is_binary(Body) orelse is_list(Body)),
          is_list(Options) ->
     URIEncodePath = proplists:get_value(uri_encode_path, Options, true),
 
@@ -696,6 +696,32 @@ sign_v4_reference_example_4_test() ->
         {<<"X-Amz-Content-SHA256">>, <<"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">>},
         {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
         {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>}],
+
+    ?assertEqual(Actual, Expected).
+
+sign_v4_iolist_body_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"PUT">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test%24file.text">>,
+    Headers = [
+        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
+        {<<"Date">>, <<"Fri, 24 May 2013 00:00:00 GMT">>},
+        {<<"X-Amz-Storage-Class">>, <<"REDUCED_REDUNDANCY">>}],
+    Body = [<<"Welcome ">>, <<"to ">>, <<"Amazon S3.">>],
+
+    Actual = sign_v4(AccessKeyID, SecretAccessKey, Region, Service, DateTime, Method, URL, Headers, Body, [{uri_encode_path, false}]),
+
+    Expected = [
+        {<<"Authorization">>, <<"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=date;host;x-amz-content-sha256;x-amz-date;x-amz-storage-class,Signature=98ad721746da40c64f1a55b78f14c238d841ea1380cd77a1b5971af0ece108bd">>},
+        {<<"X-Amz-Content-SHA256">>, <<"44ce7dd67c959e0d3524ffac1771dfbba87d2b6b4b4e99e42034a8b803f8b072">>},
+        {<<"X-Amz-Date">>, <<"20130524T000000Z">>},
+        {<<"Host">>, <<"examplebucket.s3.amazonaws.com">>},
+        {<<"Date">>, <<"Fri, 24 May 2013 00:00:00 GMT">>},
+        {<<"X-Amz-Storage-Class">>, <<"REDUCED_REDUNDANCY">>}],
 
     ?assertEqual(Actual, Expected).
 
