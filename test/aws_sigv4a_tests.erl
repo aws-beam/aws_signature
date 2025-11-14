@@ -276,7 +276,7 @@ expect_signature(Headers, TT) ->
   Credentials = TT#sign_request_test.input#v4a_sign_request_input.credentials,
   {ok, PrivateKey} = aws_sigv4a_credentials:derive_private_key(Credentials),
   PublicKey = public_key(PrivateKey),
-  verify_signature(PublicKey, aws_sigv4_utils:sha256(TT#sign_request_test.string_to_sign), Signature).
+  verify_signature(PublicKey, TT#sign_request_test.string_to_sign, Signature).
 
 public_key(PrivateKey) ->
   {PublicKey, _PrivateKey} = crypto:generate_key(ecdh, secp256r1, PrivateKey),
