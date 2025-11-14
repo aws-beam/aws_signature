@@ -224,7 +224,7 @@ build_string_to_sign(Signer, CanonicalRequest) ->
                [ Signer#internal_signer.algorithm
                , aws_sigv4_utils:format_time_long(Signer#internal_signer.time)
                , Signer#internal_signer.credential_scope
-               , aws_sigv4_utils:sha256(CanonicalRequest)
+               , aws_signature_utils:base16(aws_sigv4_utils:sha256(CanonicalRequest))
                ])).
 
 -spec build_authorization_header(internal_signer(), binary(), binary()) -> binary().
