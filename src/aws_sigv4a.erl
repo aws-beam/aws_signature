@@ -92,7 +92,7 @@ scope(Time, Service) ->
 -spec sign_string(binary()) -> aws_sigv4_internal:sign_string().
 sign_string(PrivateKey) ->
   fun(StrToSign) ->
-    {ok, aws_signature_utils:base16(ecdsa_sign(PrivateKey, aws_sigv4_utils:sha256(StrToSign)))}
+    {ok, aws_signature_utils:base16(ecdsa_sign(PrivateKey, StrToSign))}
   end.
 
 ecdsa_sign(PrivateKey, Digest) ->
