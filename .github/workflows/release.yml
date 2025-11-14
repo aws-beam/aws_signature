@@ -17,6 +17,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
+      - name: Take ownership of the checkout directory (Git CVE-2022-24765)
+        run: chown --recursive --reference=/ .
+
+      - name: Allow for file ownership conflicts with Docker and GitHub Actions
+        run: git config --global --add safe.directory '*'
+
       - name: Compile
         run: rebar3 compile
 
@@ -35,6 +41,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to hex.pm
+        uses: erlangpack/github-action@v4
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
-        run: rebar3 hex publish -r hexpm --yes
