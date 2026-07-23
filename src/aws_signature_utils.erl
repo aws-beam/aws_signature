@@ -9,6 +9,7 @@
          hex/2,
          parse_url/1,
          uri_encode_path/1,
+         uri_encode/1,
          rebuilds_url_with_query_params/2
         ]).
 
@@ -136,6 +137,21 @@ uri_encode_path_byte(Byte) ->
     H = Byte band 16#F0 bsr 4,
     L = Byte band 16#0F,
     <<"%", (aws_signature_utils:hex(H, upper)), (aws_signature_utils:hex(L, upper))>>.
+
+%% @doc URI-encodes the given value for use in a query string.
+%%
+%% Escapes all characters except for the unreserved characters
+%% listed in https://tools.ietf.org/html/rfc3986#section-2.3
+%% (unlike uri_encode_path/1, "/" is escaped too).
+-spec uri_encode(binary()) -> binary().
+uri_encode(Value) when is_binary(Value) ->
+    << (uri_encode_byte(Byte)) || <<Byte>> <= Value >>.
+
+-spec uri_encode_byte(byte()) -> binary().
+uri_encode_byte($/) ->
+    <<"%2F">>;
+uri_encode_byte(Byte) ->
+    uri_encode_path_byte(Byte).
 
 %% This can be simplified if we drop support for OTP < 21
 %% This can be removed if we drop support for OTP < 23
