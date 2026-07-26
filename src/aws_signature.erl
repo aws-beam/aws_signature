@@ -399,7 +399,11 @@ host_header_from_url(URLMap) ->
 maybe_add_session_token_query_param(QueryParams, undefined) ->
     QueryParams;
 maybe_add_session_token_query_param(QueryParams, SessionToken) ->
-    [{<<"X-Amz-Security-Token">>, SessionToken} | QueryParams].
+    %% The token is inserted verbatim into both the canonical request and
+    %% the final URL, so it must be URI-encoded here. Session tokens are
+    %% base64 and contain "+", "/" and "=", which would otherwise corrupt
+    %% the token and invalidate the signature on the verifying side.
+    [{<<"X-Amz-Security-Token">>, aws_signature_utils:uri_encode(SessionToken)} | QueryParams].
 
 sort_query_params_with_signature(QueryParams, Signature) ->
     FinalQueryParams = [{<<"X-Amz-Signature">>, Signature} | QueryParams],
@@ -930,6 +934,42 @@ sign_v4_query_params_reference_example_2_with_session_token_test() ->
           "X-Amz-Expires=86400&",
           "X-Amz-Security-Token=my-session-token&",
           "X-Amz-Signature=127498ec2e996f60915eba27520e69b1554fe016da1d36a3dde70f2408551d67&",
+          "X-Amz-SignedHeaders=host">>,
+
+    Actual =
+        sign_v4_query_params(AccessKeyID,
+                             SecretAccessKey,
+                             Region,
+                             Service,
+                             DateTime,
+                             Method,
+                             URL,
+                             [{body_digest, <<"UNSIGNED-PAYLOAD">>}, {session_token, SessionToken}]),
+
+    ?assertEqual(Expected, Actual).
+
+%% sign_v4_query_params/7: session tokens contain characters that are
+%% reserved in query strings ("+", "/", "=") and must be URI-encoded,
+%% both in the canonical request and in the final URL. Signature verified
+%% against an independent SigV4 implementation and live against S3.
+sign_v4_query_params_encodes_session_token_test() ->
+    AccessKeyID = <<"AKIAIOSFODNN7EXAMPLE">>,
+    SecretAccessKey = <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>,
+    Region = <<"us-east-1">>,
+    Service = <<"s3">>,
+    DateTime = {{2013, 5, 24}, {0, 0, 0}},
+    Method = <<"GET">>,
+    URL = <<"https://examplebucket.s3.amazonaws.com/test.txt">>,
+    SessionToken = <<"token+with/reserved=chars==">>,
+
+    Expected =
+        <<"https://examplebucket.s3.amazonaws.com/test.txt?",
+          "X-Amz-Algorithm=AWS4-HMAC-SHA256&",
+          "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&",
+          "X-Amz-Date=20130524T000000Z&",
+          "X-Amz-Expires=86400&",
+          "X-Amz-Security-Token=token%2Bwith%2Freserved%3Dchars%3D%3D&",
+          "X-Amz-Signature=f4578490f5ee43d449421887cf1e1ee5c0722097b61f3d7be11c4440c9650b1b&",
           "X-Amz-SignedHeaders=host">>,
 
     Actual =
